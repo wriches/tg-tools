@@ -74,10 +74,14 @@ SQLite kv table for the encrypted session, plus an `audit` table).
 ### Session & auth model
 Auth is a Telethon user session stored as an encrypted `StringSession` (Fernet
 key derived from `TG_SECRET_KEY`) in SQLite. The session is persisted **on login
-and again after every scan** — the scan warms Telethon's entity cache with group
-access-hashes, and removal resolves groups **by numeric id**, so those hashes
-must survive a restart. On any authorized request, `get_client()` reconstructs
-and connects the client, and clears the stored session if Telegram reports it
+and again after every scan/list** — the scan warms Telethon's in-memory entity
+cache with group access-hashes, and removal/add resolve groups **by numeric id**,
+so within one running process the cache lets id-based actions work. Note a
+`StringSession` persists the auth key but **not** the entity cache, so those
+access-hashes do *not* survive a process restart — after a restart an id-based
+lookup must first warm the cache (a scan for Remover; `resolve_group`'s dialog
+warm for Builder). On any authorized request, `get_client()` reconstructs and
+connects the client, and clears the stored session if Telegram reports it
 expired.
 
 ### Scan pipeline (the performance-critical path)
@@ -116,37 +120,65 @@ Two steps, each a WebSocket so Telegram's heavy rate-limiting on these calls
 surfaces as visible progress (same `flood_sleep_threshold` trick as the scan):
 `/ws/resolve` turns a pasted blob (`parse_identifiers` accepts `@name`, `name`,
 `t.me/...`) into resolved users (deduped by id) + an unresolved list with
-reasons; `/ws/build` creates a megagroup (`create_supergroup`) or resolves the
-chosen existing group(s), then adds people **one at a time** (`add_users`) so
-each gets a clean per-user `AddOutcome` (added / needs_invite / already_member /
-failed) rather than one privacy-restricted user failing a whole batch. The
-existing-group destination is **multi-select**: one build run queues the
-recipients through each chosen group in turn (`build_and_add` loops groups,
-streaming `plan`/`group_start`/`progress`/`group_done` events and returning a
-`results` list). A group-level failure (`abort`) only skips that group; an
-account-level spam limit (`PeerFloodError` → `stop_all`) halts the whole run.
-Adds are throttled (`_ADD_DELAY`). The group picker loads via `/ws/groups`
-(`list_addable_groups` streams `scanned/found` progress since paging all dialogs
-is slow) and the frontend caches the result in `localStorage` (`tg_groups_cache`,
-7-day TTL, with a Refresh button); a just-created group is appended to the cache
-so it appears without a reload. **Gotcha:** on current Telegram layers
+reasons; `/ws/build` creates a megagroup (`create_supergroup`, then
+`apply_group_settings` applies the optional `GroupSettings` — description,
+history visibility via `TogglePreHistoryHidden`, and default member permissions
+via `EditChatDefaultBannedRights`) or resolves the chosen existing group(s),
+then adds people **one at a time** (`add_users`) so each gets a clean per-user
+`AddOutcome` (added / needs_invite / already_member / failed) rather than one
+privacy-restricted user failing a whole batch. The existing-group destination is
+**multi-select**: one build run queues the recipients through each chosen group
+in turn (`build_and_add` loops groups, streaming
+`plan`/`group_start`/`progress`/`group_done` events and returning a `results`
+list). Adds are throttled (`_ADD_DELAY`).
+
+**Failure/limit handling** distinguishes three cases: a group-level failure
+(`abort`) skips just that group; an account-level *spam* limit (`PeerFloodError`
+→ `stop_all`) halts the whole run; and an over-cap add *flood-wait*
+(> `_MAX_FLOOD_WAIT` — Telegram's "you've added too many, back off" limit, not a
+transient throttle) sets `rate_limited`, which buckets that user **and everyone
+still pending** as `needs_invite` rather than failing them, so they're offered
+the invite link and a later re-run can add them once it clears.
+
+**Re-run safety (ledger).** The frontend keeps a `localStorage` ledger
+(`tg_build_ledger`) of add/DM state per `(group, user)`, so the same operation
+can be re-run confidently: it skips people already `added` to a group and won't
+re-DM anyone already `invited`, but still re-attempts adding people who were only
+invited. Existing-mode builds therefore send per-group `targets`
+(`[{group_id, type, user_ids}]`, filtered by the ledger) instead of one shared
+user list; a "Reset add/DM history" control clears it.
+
+The group picker loads via `/ws/groups` (`list_addable_groups` streams
+`scanned/found` progress since paging all dialogs is slow) and the frontend
+caches the result in `localStorage` (`tg_groups_cache`, 7-day TTL, Refresh
+button); a just-created group is appended so it appears without a reload.
+**Cold-cache gotcha:** those cached ids can outlive the running client's entity
+cache (a `StringSession` doesn't restore access-hashes across a restart, and a
+bare-id `get_entity` guesses `PeerUser`), so `resolve_group` resolves by the
+group's *type* and, on a cache miss, warms the full dialog list once (private
+supergroups then resolve; `getChannels` with hash 0 only works for public ones).
+A stale cached id (group since deleted) surfaces as a "re-load the group list"
+error, not a crash. **Other gotcha:** on current Telegram layers
 `inviteToChannel`/`addChatUser` return `messages.InvitedUsers` and report
 privacy/eligibility blocks in `missing_invitees` *instead of raising*
 `UserPrivacyRestrictedError` — so `add_user` must inspect the result
-(`_missing_invitee_ids`), not just catch exceptions, or blocked users get
-silently mislabelled "added" and never offered the link. Anyone bucketed
-`needs_invite` is
-handled via `export_invite` — the frontend shows the link and reuses the
-Remover outreach send-path (`/api/contact/send`, throttled, flood/spam backoff)
-to DM it. `list_addable_groups`/`get_contacts` back the two pickers; the session
-is persisted after resolve and after build so access-hashes survive a restart.
+(`_missing_invitee_ids`), not just catch exceptions. Anyone bucketed
+`needs_invite` is handled via `export_invite` — the frontend shows the link and
+reuses the Remover outreach send-path (`/api/contact/send`, throttled,
+flood/spam backoff) to DM it. `list_addable_groups`/`get_contacts` back the two
+pickers.
 
 ### Frontend model (`index.html`)
-One static file, plain DOM + `fetch`/WebSocket, no framework. State lives in a few
-module-level vars (`lastScan`, `outreach`, `activeBucket`). Results render as
-tabs (one per bucket) with per-row checkboxes; selection is scoped per bucket so
-each tab's action is unambiguous. A 401 from any call drops back to the login
-screen; the ToS acknowledgement is remembered in `localStorage` (`tg_ack`).
+One static file, plain DOM + `fetch`/WebSocket, no framework. A `#tools-nav`
+switches between the **Remover** and **Builder** tools (`setActiveTool`); state
+lives in module-level vars per tool — Remover: `lastScan`, `outreach`,
+`activeBucket`; Builder: `selectedContacts`/`selectedGroups` maps (rendered as
+searchable multi-select lists with the picks pinned as removable chips at the
+top), `buildPlan`, `inviteFlows`, plus the two `localStorage` caches/ledger
+above. Remover results render as tabs (one per bucket) with per-row checkboxes;
+selection is scoped per bucket so each tab's action is unambiguous. A 401 from
+any call drops back to the login screen; the ToS acknowledgement is remembered
+in `localStorage` (`tg_ack`).
 Group **links** differ by context: `tg://` deep links in the UI (open the app),
 `https://t.me/...` in outreach messages (Telegram linkifies these); basic groups
 have no linkable URL.

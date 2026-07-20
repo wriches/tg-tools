@@ -7,10 +7,12 @@ account. It currently has two tools:
 removing them: remove them yourself where you have rights, or draft aggregated
 requests to the groups' owners/admins where you don't.
 
-**Builder** — create a group (or pick an existing one you can add to) and bulk-add
-people: paste usernames in any format and/or multi-select your contacts. Anyone
-whose privacy settings block a direct add is offered the group's invite link,
-which you can send them as a throttled DM.
+**Builder** — create a group (setting its description, chat-history visibility
+and member permissions) or pick an existing one, then bulk-add people: paste
+usernames in any format and/or multi-select your contacts. Anyone who can't be
+added directly — privacy settings, or Telegram's add rate-limit — is offered the
+group's invite link to send as a throttled DM. Re-running the same operation is
+safe: it skips people already added and won't message anyone twice.
 
 ## How it works (and its limits)
 
