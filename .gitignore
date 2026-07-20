@@ -1,0 +1,24 @@
+# Secrets & local state
+.env
+*.session
+*.session-journal
+data/
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Node / frontend (future SPA build)
+node_modules/
+dist/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

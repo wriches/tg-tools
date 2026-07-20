@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>tg-tools</title>
+  <style>
+    :root { --bg:#0f1115; --panel:#181b22; --line:#2a2f3a; --fg:#e6e9ef; --muted:#9aa3b2;
+            --green:#2ea043; --amber:#d29922; --red:#cf4b4b; --accent:#3b82f6; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:15px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+    main { max-width:880px; margin:0 auto; padding:24px 18px 64px; }
+    h1 { font-size:20px; margin:0 0 4px; }
+    .sub { color:var(--muted); margin:0 0 20px; }
+    .tools-nav { display:flex; gap:4px; margin:18px 0 10px; border-bottom:1px solid var(--line); }
+    .tool-tab { background:transparent; border:0; border-bottom:2px solid transparent;
+      color:var(--muted); padding:8px 12px; cursor:pointer; font-size:14px; border-radius:0; }
+    .tool-tab.active { color:var(--fg); border-bottom-color:var(--accent); }
+    .tool-tab:disabled { opacity:.5; cursor:default; }
+    .tool-header { margin:0 0 6px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin:14px 0; }
+    label { display:block; font-size:13px; color:var(--muted); margin-bottom:4px; }
+    input { width:100%; padding:9px 10px; background:#0d0f14; border:1px solid var(--line);
+            border-radius:7px; color:var(--fg); font-size:14px; }
+    input[type="search"] { -webkit-appearance:none; appearance:none; }
+    input[type="search"]::-webkit-search-cancel-button { -webkit-appearance:none; }
+    button { padding:9px 14px; border:0; border-radius:7px; background:var(--accent); color:#fff;
+             font-size:14px; cursor:pointer; }
+    button.ghost { background:transparent; border:1px solid var(--line); color:var(--fg); }
+    button:disabled { opacity:.5; cursor:default; }
+    .row { display:flex; gap:8px; align-items:flex-end; }
+    .row > div { flex:1; }
+    .hide { display:none; }
+    .err { color:var(--red); font-size:13px; min-height:18px; margin-top:6px; }
+    .status { margin-top:12px; padding:10px 12px; border-radius:8px; background:#0d0f14;
+              border:1px solid var(--line); font-size:14px; }
+    .status.busy, .status.ok, .status.err-box { display:flex; align-items:center; gap:10px; }
+    .status .bar { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre; }
+    .status.busy { color:var(--fg); }            .status.busy .bar { color:var(--accent); }
+    .status.ok { color:#74d68a; border-color:#2f7d43; }  .status.ok .bar { color:#74d68a; }
+    .status.err-box { color:#e57373; border-color:#7a3b3b; } .status.err-box .bar { color:#e57373; }
+    .confirm { background:#15120c; border:1px solid #5a4a1a; border-radius:8px; padding:14px; }
+    .confirm ul { margin:8px 0; padding-left:20px; }
+    .confirm li { margin:2px 0; }
+    .btn-danger { background:var(--red); }
+    .outcome { display:flex; gap:8px; padding:4px 0; font-size:14px; align-items:flex-start; }
+    .outcome.bad { color:#e57373; }
+    input[type="checkbox"] { width:auto; }
+    .tabs { display:flex; gap:6px; margin:14px 0 4px; flex-wrap:wrap; }
+    .tab { background:#11141a; border:1px solid var(--line); color:var(--muted);
+           border-radius:8px; padding:6px 12px; cursor:pointer; font-size:13px; }
+    .tab.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .tab .count { font-weight:700; margin-left:4px; }
+    .toolbar { display:flex; gap:16px; align-items:center; margin:10px 0; flex-wrap:wrap; }
+    .toolbar:empty { display:none; }
+    .toolbar label { display:inline-flex; align-items:center; gap:6px; color:var(--muted); cursor:pointer; }
+    th.chk-col, td.chk-col { width:28px; text-align:center; }
+    .row-chk { cursor:pointer; }
+    td a { color:var(--accent); text-decoration:none; }
+    td a:hover { text-decoration:underline; }
+    .profile { display:flex; gap:14px; align-items:flex-start; margin-top:16px;
+               padding-top:16px; border-top:1px solid var(--line); }
+    .profile img, .profile .pfallback { width:64px; height:64px; border-radius:50%;
+               flex-shrink:0; object-fit:cover; background:#11141a; }
+    .profile .pfallback { display:flex; align-items:center; justify-content:center;
+               color:var(--muted); font-size:26px; }
+    .profile .pname { font-weight:600; }
+    .profile .pbio { color:var(--muted); font-size:13px; white-space:pre-wrap; margin-top:6px; }
+    .skel { background:#1c2029; border-radius:6px; position:relative; overflow:hidden; }
+    .skel::after { content:""; position:absolute; inset:0; transform:translateX(-100%);
+      background:linear-gradient(90deg, transparent, rgba(255,255,255,.06), transparent);
+      animation:shimmer 1.2s infinite; }
+    @keyframes shimmer { 100% { transform:translateX(100%); } }
+    .skel-line { height:12px; }
+    textarea { width:100%; padding:9px 10px; background:#0d0f14; border:1px solid var(--line);
+      border-radius:7px; color:var(--fg); font:14px/1.5 system-ui, sans-serif; resize:vertical; }
+    code { background:#11141a; border:1px solid var(--line); border-radius:4px; padding:0 4px; font-size:12px; }
+    .draft { border:1px solid var(--line); border-radius:8px; padding:12px; margin:10px 0; }
+    .draft.sent { opacity:.55; }
+    .draft-head { display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+    .draft-actions { display:flex; gap:8px; margin-top:8px; }
+    .draft-status.ok { color:#74d68a; } .draft-status.err { color:#e57373; }
+    .warn { background:rgba(207,75,75,.15); border:1px solid #7a3b3b; color:#e57373;
+      border-radius:8px; padding:10px 12px; margin:8px 0; font-size:14px; }
+    .me { color:var(--muted); font-size:13px; }
+    table { width:100%; border-collapse:collapse; margin-top:8px; font-size:14px; }
+    th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+    th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    .tag { display:inline-block; padding:1px 8px; border-radius:20px; font-size:12px; font-weight:600; }
+    .tag.removable_by_me { background:rgba(46,160,67,.18); color:#74d68a; }
+    .tag.needs_admin { background:rgba(210,153,34,.18); color:#e3b341; }
+    .tag.no_action { background:rgba(207,75,75,.18); color:#e57373; }
+    .pill { display:inline-block; background:#11141a; border:1px solid var(--line); border-radius:20px;
+            padding:1px 8px; margin:2px 4px 2px 0; font-size:12px; color:var(--muted); }
+    .pill.owner { color:#e3b341; border-color:#5a4a1a; }
+    .summary span { margin-right:16px; }
+    .note { color:var(--muted); font-size:12px; }
+    .muted { color:var(--muted); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>tg-tools</h1>
+  <p class="sub">A small suite of Telegram utilities.</p>
+
+  <!-- AUTH -->
+  <section id="auth" class="panel hide">
+    <form id="auth-form" onsubmit="return false">
+    <div id="step-phone">
+      <label>Phone number (international format, e.g. +15551234567)</label>
+      <div class="row">
+        <div><input id="phone" placeholder="+15551234567" autocomplete="tel" inputmode="tel" /></div>
+        <button type="button" id="btn-send-code">Send code</button>
+      </div>
+    </div>
+    <div id="step-code" class="hide">
+      <label>Login code (sent via Telegram)</label>
+      <div class="row">
+        <div><input id="code" placeholder="12345" autocomplete="one-time-code" inputmode="numeric" /></div>
+        <button type="button" id="btn-sign-in">Sign in</button>
+      </div>
+    </div>
+    <div id="step-password" class="hide">
+      <label>Two-step verification password</label>
+      <div class="row">
+        <div><input id="password" type="password" autocomplete="current-password" /></div>
+        <button type="button" id="btn-password">Confirm</button>
+      </div>
+      <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; margin-top:8px;">
+        <input type="checkbox" id="show-pw" style="width:auto;" /> Show password
+      </label>
+    </div>
+    <div class="status hide" id="auth-status"><span class="bar" id="auth-bar"></span><span id="auth-msg"></span></div>
+    </form>
+  </section>
+
+  <!-- SIGNED IN -->
+  <section id="app" class="panel hide">
+    <div class="row" style="justify-content:space-between; align-items:center;">
+      <div class="me" id="me"></div>
+      <button class="ghost" id="btn-logout">Log out</button>
+    </div>
+  </section>
+
+  <!-- TOS ACKNOWLEDGEMENT -->
+  <section id="ack" class="panel hide">
+    <div style="font-weight:600; margin-bottom:8px;">Before you start</div>
+    <p class="sub" style="margin:0 0 10px;">This tool acts through your Telegram account using an <strong>unofficial API client</strong>. It can remove people from groups and send direct messages to people who aren't your contacts — both carry a real risk of Telegram <strong>rate-limiting or banning your account</strong>. You are responsible for using it within Telegram's Terms of Service and applicable laws. Send conservatively.</p>
+    <label style="display:inline-flex; gap:8px; align-items:center; cursor:pointer;">
+      <input type="checkbox" id="ack-chk"> I understand and accept these risks.
+    </label>
+    <div style="margin-top:12px;"><button id="btn-ack" disabled>Continue</button></div>
+  </section>
+
+  <!-- TOOL NAV (one tool for now; extensible) -->
+  <nav id="tools-nav" class="tools-nav hide">
+    <button type="button" class="tool-tab active" data-tool="remover">Remover</button>
+  </nav>
+  <div id="tool-header" class="tool-header hide">
+    <p class="sub" style="margin:0;">Find groups you share with a Telegram user, remove them where you can, and message the admins of the rest to ask. All actions are <strong>real</strong> and require confirmation.</p>
+  </div>
+
+  <!-- SCAN (Remover tool) -->
+  <section id="scan" class="panel hide">
+    <form id="scan-form" onsubmit="return false">
+    <label>Telegram handle to scan</label>
+    <div class="row">
+      <div><input id="handle" type="search" placeholder="e.g. janedoe" autocomplete="off" autocapitalize="none"
+        autocorrect="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other" /></div>
+      <button type="button" id="btn-scan">Scan common groups</button>
+    </div>
+    <div class="status hide" id="scan-status"><span class="bar" id="scan-bar"></span><span id="scan-msg"></span></div>
+    </form>
+    <div id="profile" class="profile hide"></div>
+  </section>
+
+  <section id="results" class="panel hide">
+    <div class="summary" id="summary"></div>
+    <div class="tabs" id="tabs"></div>
+    <div class="toolbar" id="toolbar-top"></div>
+    <table>
+      <thead>
+        <tr><th class="chk-col"></th><th>Group</th><th>Type</th><th>Status</th><th>Detail</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="toolbar" id="toolbar-bottom"></div>
+    <div id="action-area"></div>
+  </section>
+
+  <section id="audit-sec" class="panel hide">
+    <div class="row" style="justify-content:space-between; align-items:center;">
+      <strong>Activity history</strong>
+      <button class="ghost" id="btn-audit-refresh">Refresh</button>
+    </div>
+    <table>
+      <thead><tr><th>When (UTC)</th><th>Group / recipient</th><th>Target</th><th>Action</th><th>Result</th></tr></thead>
+      <tbody id="audit-rows"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const api = async (path, body) => {
+  const res = await fetch(path, {
+    method: body ? "POST" : "GET",
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    refresh();  // session expired mid-use -> drop back to the login screen
+    throw new Error(data.detail || "Session expired — please log in again.");
+  }
+  if (!res.ok) throw new Error(data.detail || ("HTTP " + res.status));
+  return data;
+};
+const show = (id, on = true) => $(id).classList.toggle("hide", !on);
+const esc = (s) => (s ?? "").toString().replace(/[&<>]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c]));
+
+// Client-side validation: strip common separators, then check the shape, so
+// obviously-bad input never reaches Telegram (and never produces a cryptic error).
+const normalizePhone = (raw) => (raw || "").trim().replace(/[\s\-().]/g, "");
+function validatePhone(raw) {
+  const v = normalizePhone(raw);
+  if (!v) return { error: "Enter your phone number in international format, e.g. +15551234567." };
+  if (!/^\+?\d{7,15}$/.test(v))
+    return { error: "That doesn't look like a valid phone number — use only digits with an optional leading +, e.g. +15551234567." };
+  return { value: v };
+}
+function validateCode(raw) {
+  const v = (raw || "").replace(/\s/g, "");
+  if (!/^\d{4,7}$/.test(v))
+    return { error: "Enter the numeric login code Telegram sent you (digits only)." };
+  return { value: v };
+}
+function validateHandle(raw) {
+  // Accept a pasted @ or t.me link; we only need the bare username.
+  const v = (raw || "").trim()
+    .replace(/^(https?:\/\/)?(t\.me|telegram\.me)\//i, "")
+    .replace(/^@/, "").trim();
+  if (!v) return { error: "Enter a username to scan, e.g. username." };
+  if (!/^[a-zA-Z][a-zA-Z0-9_]{3,31}$/.test(v))
+    return { error: "That doesn't look like a valid username — use 4–32 letters, digits or underscores, starting with a letter." };
+  return { value: v };
+}
+
+async function refresh() {
+  const st = await api("/api/status");
+  if (st.authorized) {
+    show("auth", false); show("app", true);
+    // Neutralize the password field so no type="password" exists in the DOM on
+    // the scan screen — otherwise Safari/iCloud offers autofill on the handle.
+    $("password").type = "text"; $("password").value = "";
+    const m = st.me;
+    $("me").textContent = "Signed in as " + (m.name || "") + (m.username ? " (@" + m.username + ")" : "");
+    if (localStorage.getItem("tg_ack")) {
+      show("ack", false);
+      show("tools-nav", true); show("tool-header", true); show("scan", true);
+      loadAudit();
+    } else {
+      show("ack", true);
+      show("tools-nav", false); show("tool-header", false); show("scan", false);
+      show("results", false); show("audit-sec", false); show("profile", false);
+    }
+  } else {
+    show("auth", true); show("app", false); show("ack", false);
+    show("tools-nav", false); show("tool-header", false); show("scan", false);
+    show("results", false); show("audit-sec", false); show("profile", false);
+  }
+}
+
+// Disable a button and show progress text for the duration of an async action,
+// so network round-trips (e.g. Telegram sending the code) never look frozen.
+async function withBusy(btnId, label, fn) {
+  const el = $(btnId), orig = el.textContent;
+  el.disabled = true; el.textContent = label;
+  try { return await fn(); }
+  finally { el.disabled = false; el.textContent = orig; }
+}
+
+// Animated status area: an ASCII block sweeping left->right, a live message,
+// and an elapsed-seconds counter, so long network calls are clearly "working".
+const BAR_W = 22, BAR_SEG = 3;
+const barFrame = (pos) => {
+  let s = "";
+  for (let i = 0; i < BAR_W; i++) s += (((i - pos + BAR_W) % BAR_W) < BAR_SEG) ? "█" : "░";
+  return s;
+};
+function mkStatus(boxId, barId, msgId) {
+  let timer = null, started = 0, pos = 0, label = "";
+  const box = $(boxId), bar = $(barId), msg = $(msgId);
+  return {
+    start(text) {
+      clearInterval(timer); pos = 0; started = performance.now(); label = text;
+      box.className = "status busy"; bar.textContent = barFrame(0); msg.textContent = label;
+      timer = setInterval(() => {
+        pos = (pos + 1) % BAR_W;
+        const secs = Math.floor((performance.now() - started) / 1000);
+        bar.textContent = barFrame(pos);
+        msg.textContent = label + (secs > 0 ? `  ${secs}s` : "");
+      }, 90);
+    },
+    update(text) { label = text; },  // change the running label (e.g. progress)
+    done(text) { clearInterval(timer); timer = null; box.className = "status ok"; bar.textContent = "✓"; msg.textContent = text; },
+    fail(text) { clearInterval(timer); timer = null; box.className = "status err-box"; bar.textContent = "✕"; msg.textContent = text; },
+    hide() { clearInterval(timer); timer = null; box.className = "status hide"; },
+  };
+}
+
+// Scan over a WebSocket so progress can stream in. Resolves to the ScanResult.
+function scanViaWs(handle, onProgress) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, arg) => { if (!settled) { settled = true; fn(arg); } };
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://${location.host}/ws/scan`);
+    ws.onopen = () => ws.send(JSON.stringify({ handle }));
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.type === "progress") onProgress(m.done, m.total, m.wait);
+      else if (m.type === "result") { finish(resolve, m.data); ws.close(); }
+      else if (m.type === "error") { finish(reject, new Error(m.detail)); ws.close(); }
+    };
+    ws.onerror = () => finish(reject, new Error("Scan connection error."));
+    ws.onclose = () => finish(reject, new Error("Scan connection closed unexpectedly."));
+  });
+}
+const authStatus = mkStatus("auth-status", "auth-bar", "auth-msg");
+const scanStatus = mkStatus("scan-status", "scan-bar", "scan-msg");
+let lastScan = null;  // most recent scan result, used by the removal flow
+
+$("btn-send-code").onclick = () => {
+  const { value, error } = validatePhone($("phone").value);
+  if (error) { authStatus.fail(error); return; }
+  $("phone").value = value;  // reflect the normalized number back
+  withBusy("btn-send-code", "Sending…", async () => {
+    authStatus.start("Requesting login code from Telegram…");
+    try {
+      await api("/api/auth/send_code", { phone: value });
+      authStatus.hide(); show("step-phone", false); show("step-code", true);
+    } catch (e) { authStatus.fail(e.message); }
+  });
+};
+$("btn-sign-in").onclick = () => {
+  const { value, error } = validateCode($("code").value);
+  if (error) { authStatus.fail(error); return; }
+  withBusy("btn-sign-in", "Signing in…", async () => {
+    authStatus.start("Verifying code…");
+    try {
+      const r = await api("/api/auth/sign_in", { code: value });
+      authStatus.hide();
+      if (r.next === "password") {
+        // Make it a real password field only for this step (see refresh()).
+        $("password").type = "password"; $("show-pw").checked = false;
+        show("step-code", false); show("step-password", true);
+      } else { await refresh(); }
+    } catch (e) { authStatus.fail(e.message); }
+  });
+};
+$("btn-password").onclick = () => withBusy("btn-password", "Confirming…", async () => {
+  authStatus.start("Checking 2FA password…");
+  try {
+    await api("/api/auth/password", { password: $("password").value });
+    authStatus.hide(); await refresh();
+  } catch (e) { authStatus.fail(e.message); }
+});
+$("btn-logout").onclick = () => withBusy("btn-logout", "…", async () => {
+  await api("/api/auth/logout", {}); await refresh();
+});
+
+$("btn-scan").onclick = () => {
+  const { value, error } = validateHandle($("handle").value);
+  if (error) { scanStatus.fail(error); return; }
+  $("handle").value = value;  // reflect the normalized username back
+  show("results", false);
+  // Profile loads independently and first; show a skeleton until it arrives.
+  showProfileSkeleton();
+  api("/api/profile", { handle: value })
+    .then(renderProfile)
+    .catch((e) => renderProfileError(e.message));
+  // Common-groups scan is slower; run it under the busy/status indicator.
+  withBusy("btn-scan", "Scanning…", async () => {
+    scanStatus.start("Scanning common groups…");
+    try {
+      const r = await scanViaWs(value, (done, total, wait) =>
+        scanStatus.update(wait
+          ? `Telegram rate-limit — waiting ${wait}s… (${done}/${total} checked)`
+          : `Scanning common groups… ${done}/${total} checked`));
+      const n = r.summary.total;
+      scanStatus.done(`Scan complete — ${n} common ${n === 1 ? "group" : "groups"} found.`);
+      renderResults(r);
+    } catch (e) { scanStatus.fail(e.message); }
+  });
+};
+
+const BUCKETS = ["removable_by_me", "needs_admin", "no_action"];
+const TAB_LABELS = { removable_by_me: "You can remove", needs_admin: "Need an admin", no_action: "No action" };
+let activeBucket = "removable_by_me";
+const targetLabel = (t) => (t.name || (t.username ? "@" + t.username : "this user"));
+
+function renderProfile(t) {
+  const avatar = t.photo
+    ? `<img src="${t.photo}" alt="">`
+    : `<div class="pfallback">${esc((t.name || t.username || "?").slice(0, 1).toUpperCase())}</div>`;
+  $("profile").innerHTML = avatar +
+    `<div><div class="pname">${esc(t.name) || "(no name)"}</div>` +
+    `<div class="muted">${t.username ? "@" + esc(t.username) : "no @username"}</div>` +
+    `${t.bio ? `<div class="pbio">${esc(t.bio)}</div>` : ""}</div>`;
+  show("profile", true);
+}
+
+function showProfileSkeleton() {
+  $("profile").innerHTML =
+    `<div class="pfallback skel"></div>` +
+    `<div style="flex:1">` +
+    `<div class="skel skel-line" style="width:38%"></div>` +
+    `<div class="skel skel-line" style="width:24%; margin-top:8px"></div>` +
+    `<div class="skel skel-line" style="width:68%; margin-top:12px"></div></div>`;
+  show("profile", true);
+}
+
+function renderProfileError(msg) {
+  $("profile").innerHTML = `<div class="muted">Couldn't load profile: ${esc(msg)}</div>`;
+  show("profile", true);
+}
+
+function renderResults(r) {
+  lastScan = r;
+  renderSummary(r);
+  $("action-area").innerHTML = "";
+  if (!r.groups.length) {
+    // Empty state: no shared groups. Summary already names the target.
+    $("tabs").innerHTML = ""; $("toolbar-top").innerHTML = ""; $("toolbar-bottom").innerHTML = "";
+    $("rows").innerHTML = "";
+    show("results", true);
+    return;
+  }
+  renderTabs(r);
+  renderRows(r);
+  const s = r.summary;
+  activeBucket = s.removable_by_me ? "removable_by_me" : (s.needs_admin ? "needs_admin" : "no_action");
+  setActiveBucket(activeBucket);
+  show("results", true);
+}
+
+function renderSummary(r) {
+  const s = r.summary;
+  $("summary").innerHTML =
+    `<span><strong>${s.total}</strong> common ${s.total === 1 ? "group" : "groups"} with ` +
+    `${esc(r.target.name)}${r.target.username ? " (@" + esc(r.target.username) + ")" : ""}</span>`;
+}
+
+function recomputeSummary() {
+  const g = lastScan.groups;
+  lastScan.summary = {
+    removable_by_me: g.filter(x => x.bucket === "removable_by_me").length,
+    needs_admin: g.filter(x => x.bucket === "needs_admin").length,
+    no_action: g.filter(x => x.bucket === "no_action").length,
+    total: g.length,
+  };
+}
+
+// After a successful removal: drop those groups from state + table and refresh
+// the summary/tab counts, so they can't be re-selected (they're now in history).
+function removeGroupsFromView(ids) {
+  if (!ids.length) return;
+  lastScan.groups = lastScan.groups.filter(g => !ids.includes(g.id));
+  ids.forEach(id => {
+    const tr = $("rows").querySelector(`tr[data-group-id="${id}"]`);
+    if (tr) tr.remove();
+  });
+  recomputeSummary();
+  renderSummary(lastScan);
+  renderTabs(lastScan);
+  setActiveBucket(activeBucket, false);  // refresh filter/toolbars, keep action-area
+}
+
+function renderTabs(r) {
+  $("tabs").innerHTML = BUCKETS.map(b =>
+    `<button class="tab" data-bucket="${b}">${TAB_LABELS[b]} <span class="count">${r.summary[b]}</span></button>`
+  ).join("");
+  $("tabs").querySelectorAll(".tab").forEach(btn =>
+    btn.onclick = () => setActiveBucket(btn.dataset.bucket));
+}
+
+function renderRows(r) {
+  $("rows").innerHTML = r.groups.map(g => {
+    let detail = "";
+    if (g.bucket === "needs_admin" && g.admins.length) {
+      detail = "Ask: " + g.admins.map(a =>
+        `<span class="pill ${a.is_owner ? "owner" : ""}">${a.is_owner ? "👑 " : ""}` +
+        `${esc(a.name)}${a.username ? " @" + esc(a.username) : ""}</span>`).join(" ");
+    }
+    if (g.note) detail += `<div class="note">${esc(g.note)}</div>`;
+    const members = g.members_count != null ? ` · ${g.members_count}` : "";
+    const chk = g.bucket === "no_action" ? "" :
+      `<input type="checkbox" class="row-chk" data-bucket="${g.bucket}" data-id="${g.id}">`;
+    const title = g.link
+      ? `<a href="${esc(g.link)}">${esc(g.title)}</a>`
+      : esc(g.title);
+    return `<tr data-bucket="${g.bucket}" data-group-id="${g.id}">
+      <td class="chk-col">${chk}</td>
+      <td>${title}${g.username ? `<div class="muted">@${esc(g.username)}</div>` : ""}</td>
+      <td class="muted">${g.type}${members}</td>
+      <td><span class="tag ${g.bucket}">${TAB_LABELS[g.bucket]}</span></td>
+      <td>${detail || '<span class="muted">—</span>'}</td>
+    </tr>`;
+  }).join("");
+  $("rows").querySelectorAll(".row-chk").forEach(c => c.onchange = updateToolbars);
+}
+
+function setActiveBucket(b, clearAction = true) {
+  activeBucket = b;
+  $("tabs").querySelectorAll(".tab").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.bucket === b));
+  $("rows").querySelectorAll("tr").forEach(tr =>
+    tr.classList.toggle("hide", tr.dataset.bucket !== b));
+  if (clearAction) $("action-area").innerHTML = "";
+  $("toolbar-top").innerHTML = toolbarHtml(b);
+  $("toolbar-bottom").innerHTML = b === "no_action" ? "" : toolbarHtml(b);
+  document.querySelectorAll(".select-all").forEach(c => c.onchange = (e) => toggleSelectAll(e.target.checked));
+  document.querySelectorAll(".btn-action").forEach(btn => btn.onclick = onActionClick);
+  updateToolbars();
+}
+
+function toolbarHtml(b) {
+  if (b === "no_action")
+    return `<div class="muted">No action is possible for these groups — you don't have removal rights and no admin was found, or the target owns the group.</div>`;
+  const selAll = `<label><input type="checkbox" class="select-all"> Select all</label>`;
+  if (b === "removable_by_me")
+    return selAll + `<button class="btn-action btn-danger" data-act="remove">Remove selected (<span class="sel-count">0</span>)</button>`;
+  return selAll + `<button class="btn-action" data-act="contact">Contact admins for selected (<span class="sel-count">0</span>)</button>`;
+}
+
+function activeChecks() {
+  return [...$("rows").querySelectorAll(`.row-chk[data-bucket="${activeBucket}"]`)];
+}
+function selectedIds() {
+  return activeChecks().filter(c => c.checked).map(c => Number(c.dataset.id));
+}
+function updateToolbars() {
+  const checks = activeChecks();
+  const sel = checks.filter(c => c.checked);
+  document.querySelectorAll(".sel-count").forEach(s => s.textContent = sel.length);
+  document.querySelectorAll(".select-all").forEach(c => {
+    c.checked = checks.length > 0 && sel.length === checks.length;
+    c.indeterminate = sel.length > 0 && sel.length < checks.length;
+  });
+  document.querySelectorAll('.btn-action').forEach(b => b.disabled = sel.length === 0);
+}
+function toggleSelectAll(checked) {
+  activeChecks().forEach(c => c.checked = checked);
+  updateToolbars();
+}
+function onActionClick(e) {
+  const btn = e.target.closest(".btn-action");
+  if (!btn) return;
+  const ids = selectedIds();
+  if (!ids.length) return;
+  const groups = lastScan.groups.filter(g => ids.includes(g.id));
+  if (btn.dataset.act === "remove") showRemoveConfirm(lastScan, groups);
+  else if (btn.dataset.act === "contact") startOutreach(lastScan, groups);
+}
+
+// Aggregate selected "needs admin" groups by the person to contact: owner if
+// the group has one, otherwise all its admins. Each person appears once with
+// the full list of their groups (so they get a single message in M4).
+function aggregateAdmins(groups) {
+  const byPerson = new Map();  // admin id -> { admin, groups: [] }
+  const noContact = [];
+  groups.forEach(g => {
+    const admins = g.admins || [];
+    if (!admins.length) { noContact.push(g); return; }
+    const owner = admins.find(a => a.is_owner);
+    (owner ? [owner] : admins).forEach(a => {
+      if (!byPerson.has(a.id)) byPerson.set(a.id, { admin: a, groups: [] });
+      byPerson.get(a.id).groups.push(g);
+    });
+  });
+  // contacts covering the most groups first
+  const tasks = [...byPerson.values()].sort((a, b) => b.groups.length - a.groups.length);
+  return { tasks, noContact };
+}
+
+// ---- M4 outreach: template -> generated drafts -> edit/delete -> send ----
+const DEFAULT_TEMPLATE =
+`Hi {{admin}},
+
+Could you please remove {{target}} from the following group(s) that you manage:
+
+{{groups}}
+
+Thanks!`;
+const SEND_DELAY_MS = 2500;  // throttle between sends in "send all"
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+let outreach = null;
+
+function startOutreach(r, groups) {
+  const { tasks, noContact } = aggregateAdmins(groups);
+  outreach = { target: r.target, tasks, noContact, template: DEFAULT_TEMPLATE, drafts: [] };
+  renderTemplateStage();
+}
+
+function renderTemplateStage() {
+  const o = outreach;
+  const noHtml = o.noContact.length
+    ? `<div class="note" style="margin-top:8px;">${o.noContact.length} selected group${o.noContact.length > 1 ? "s" : ""} excluded (no contactable admin): ${o.noContact.map(g => esc(g.title)).join(", ")}</div>`
+    : "";
+  if (!o.tasks.length) {
+    $("action-area").innerHTML = `<div class="confirm"><div>No contactable admins among the selected groups.</div>${noHtml}<div class="row" style="margin-top:8px;"><button class="ghost" id="btn-outreach-close">Close</button></div></div>`;
+    $("btn-outreach-close").onclick = () => { $("action-area").innerHTML = ""; };
+    return;
+  }
+  // Distinct groups covered (a group with two admins and no owner is assigned to
+  // both, so summing per-person counts would over-count — dedupe by group id).
+  const coveredGroups = new Set(o.tasks.flatMap(t => t.groups.map(g => g.id))).size;
+  $("action-area").innerHTML = `
+    <div class="confirm">
+      <div><strong>Contact admins.</strong> ${o.tasks.length} ${o.tasks.length === 1 ? "person" : "people"} will be messaged about ${coveredGroups} group${coveredGroups > 1 ? "s" : ""}.</div>
+      <div class="note" style="margin:10px 0 4px;">Message template — edit freely. Placeholders: <code>{{admin}}</code>, <code>{{target}}</code>, <code>{{groups}}</code>.</div>
+      <textarea id="tpl-text" rows="8">${esc(o.template)}</textarea>
+      ${noHtml}
+      <div class="row" style="gap:8px; margin-top:10px;">
+        <button id="btn-gen-drafts">Generate drafts</button>
+        <button class="ghost" id="btn-outreach-close">Cancel</button>
+      </div>
+    </div>`;
+  $("action-area").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  $("btn-gen-drafts").onclick = generateDrafts;
+  $("btn-outreach-close").onclick = () => { $("action-area").innerHTML = ""; };
+}
+
+function fillTemplate(tpl, task) {
+  const a = task.admin;
+  const adminName = a.name || (a.username ? "@" + a.username : "there");
+  const t = outreach.target;
+  const targetStr = ((t.name || "") + (t.username ? " (@" + t.username + ")" : "")).trim()
+    || (t.username ? "@" + t.username : "this user");
+  // Message links use https://t.me/ (Telegram linkifies these and opens them
+  // in-app for members) rather than the tg:// deep links used by the web UI.
+  const msgGroupLink = (g) => g.username ? `https://t.me/${g.username}`
+    : (g.type === "supergroup" || g.type === "channel") ? `https://t.me/c/${g.id}` : "";
+  const groupsStr = task.groups.map(g => {
+    const l = msgGroupLink(g);
+    return l ? `• ${g.title} — ${l}` : `• ${g.title}`;
+  }).join("\n");
+  return tpl.replace(/\{\{\s*admin\s*\}\}/g, adminName)
+            .replace(/\{\{\s*target\s*\}\}/g, targetStr)
+            .replace(/\{\{\s*groups\s*\}\}/g, groupsStr);
+}
+
+function generateDrafts() {
+  outreach.template = $("tpl-text").value;
+  outreach.drafts = outreach.tasks.map((t, i) => ({
+    id: i, admin: t.admin, groups: t.groups,
+    text: fillTemplate(outreach.template, t), status: "draft", detail: null,
+  }));
+  renderDraftsStage();
+}
+
+function renderDraftsStage() {
+  $("action-area").innerHTML = `
+    <div class="confirm">
+      <div class="row" style="justify-content:space-between; align-items:center;">
+        <strong>Review &amp; send (<span id="drafts-count">${outreach.drafts.length}</span>)</strong>
+        <div class="row" style="gap:8px;">
+          <button class="ghost" id="btn-back-tpl">Back to template</button>
+          <button id="btn-send-all">Send all</button>
+        </div>
+      </div>
+      <div id="send-warning" class="warn hide"></div>
+      <div id="drafts"></div>
+      <div class="row" style="margin-top:10px;"><button class="ghost" id="btn-outreach-close">Close</button></div>
+    </div>`;
+  $("btn-back-tpl").onclick = renderTemplateStage;
+  $("btn-send-all").onclick = sendAll;
+  $("btn-outreach-close").onclick = () => { $("action-area").innerHTML = ""; };
+  refreshDrafts();
+  $("action-area").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function draftCardHtml(d) {
+  const a = d.admin;
+  const who = `${esc(a.name) || "(no name)"}${a.username ? ` <span class="muted">@${esc(a.username)}</span>` : ' <span class="muted">(no @username)</span>'}${a.is_owner ? " 👑" : ""}`;
+  const gl = d.groups.map(g => esc(g.title)).join(", ");
+  const sent = d.status === "sent", sending = d.status === "sending";
+  const statusHtml = sent ? `<span class="draft-status ok">✓ Sent</span>`
+    : d.status === "failed" ? `<span class="draft-status err">✕ ${esc(d.detail || "Failed")}</span>`
+    : sending ? `<span class="draft-status">Sending…</span>` : "";
+  const actions = sent ? "" :
+    `<div class="draft-actions">
+      <button class="ghost btn-draft-del" data-id="${d.id}" ${sending ? "disabled" : ""}>Delete</button>
+      <button class="btn-draft-send" data-id="${d.id}" ${sending ? "disabled" : ""}>${d.status === "failed" ? "Retry send" : "Send"}</button>
+    </div>`;
+  return `<div class="draft ${sent ? "sent" : ""}" id="draft-${d.id}">
+    <div class="draft-head"><strong>${who}</strong><span class="muted">· ${d.groups.length} group${d.groups.length > 1 ? "s" : ""}: ${gl}</span>${statusHtml}</div>
+    <textarea class="draft-text" id="dtext-${d.id}" rows="6" ${sent || sending ? "disabled" : ""}>${esc(d.text)}</textarea>
+    ${actions}
+  </div>`;
+}
+
+function refreshDrafts() {
+  $("drafts").innerHTML = outreach.drafts.map(draftCardHtml).join("");
+  const cnt = $("drafts-count"); if (cnt) cnt.textContent = outreach.drafts.length;
+  document.querySelectorAll(".draft-text").forEach(ta => ta.oninput = (e) => {
+    const id = Number(e.target.id.split("-")[1]);
+    const d = outreach.drafts.find(x => x.id === id); if (d) d.text = e.target.value;
+  });
+  document.querySelectorAll(".btn-draft-del").forEach(b => b.onclick = () => deleteDraft(Number(b.dataset.id)));
+  document.querySelectorAll(".btn-draft-send").forEach(b => b.onclick = () => sendDraft(Number(b.dataset.id)));
+  updateSendAll();
+}
+
+// Per spec: "send all" disappears once any message has actually been sent.
+function updateSendAll() {
+  const btn = $("btn-send-all"); if (!btn) return;
+  const anySent = outreach.drafts.some(d => d.status === "sent");
+  const anyPending = outreach.drafts.some(d => d.status === "draft" || d.status === "failed");
+  btn.classList.toggle("hide", anySent || !anyPending);
+}
+
+function deleteDraft(id) {
+  outreach.drafts = outreach.drafts.filter(d => d.id !== id);
+  if (!outreach.drafts.length) { $("action-area").innerHTML = ""; return; }
+  refreshDrafts();
+}
+
+function showSendWarning(msg) {
+  const el = $("send-warning"); if (!el) return;
+  el.textContent = "⚠ " + msg; el.classList.remove("hide");
+  el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+async function sendDraft(id) {
+  const d = outreach.drafts.find(x => x.id === id);
+  if (!d || d.status === "sent" || d.status === "sending") return null;
+  d.status = "sending"; refreshDrafts();
+  let res = null;
+  try {
+    res = await api("/api/contact/send", {
+      admin_id: d.admin.id, text: d.text,
+      target_handle: outreach.target.username || null,
+    });
+    d.status = res.ok ? "sent" : "failed";
+    d.detail = res.detail || null;
+  } catch (e) {
+    d.status = "failed"; d.detail = e.message;
+  }
+  refreshDrafts();
+  loadAudit();
+  return res;
+}
+
+async function sendAll() {
+  const pending = outreach.drafts.filter(d => d.status === "draft" || d.status === "failed");
+  for (let i = 0; i < pending.length; i++) {
+    const res = await sendDraft(pending[i].id);
+    // Hard spam limit: stop immediately — sending more risks a ban.
+    if (res && res.abort) {
+      showSendWarning(res.detail || "Telegram is spam-limiting your account — stopped sending.");
+      break;
+    }
+    if (i < pending.length - 1) {
+      // Honor a flood-wait if Telegram asked for one, else the normal throttle.
+      const wait = (res && res.retry_after) ? Math.max(res.retry_after * 1000, SEND_DELAY_MS) : SEND_DELAY_MS;
+      await sleep(wait);
+    }
+  }
+}
+
+function showRemoveConfirm(r, removable) {
+  const list = removable.map(g =>
+    `<li>${esc(g.title)} <span class="muted">(${g.type})</span></li>`).join("");
+  $("action-area").innerHTML = `
+    <div class="confirm">
+      <div><strong>Confirm removal.</strong> This will remove ${esc(targetLabel(r.target))}
+        from the following ${removable.length} group${removable.length > 1 ? "s" : ""}:</div>
+      <ul>${list}</ul>
+      <label style="display:inline-flex; gap:6px; align-items:center; margin:6px 0;">
+        <input type="checkbox" id="ban-chk"> Also prevent them from rejoining (ban)
+      </label>
+      <div class="row" style="gap:8px; align-items:center;">
+        <button class="btn-danger" id="btn-remove-go">Confirm removal</button>
+        <button class="ghost" id="btn-remove-cancel">Cancel</button>
+      </div>
+      <div class="status hide" id="remove-status"><span class="bar" id="remove-bar"></span><span id="remove-msg"></span></div>
+      <div id="remove-outcomes"></div>
+    </div>`;
+  $("action-area").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  $("btn-remove-cancel").onclick = () => { $("action-area").innerHTML = ""; };
+  $("btn-remove-go").onclick = () => doRemove(r, removable);
+}
+
+async function doRemove(r, removable) {
+  const ban = $("ban-chk").checked;
+  const ids = removable.map(g => g.id);
+  const removeStatus = mkStatus("remove-status", "remove-bar", "remove-msg");
+  $("btn-remove-go").disabled = true; $("btn-remove-cancel").disabled = true;
+  removeStatus.start(`Removing from ${ids.length} group${ids.length > 1 ? "s" : ""}…`);
+  try {
+    const res = await api("/api/remove", { target_id: r.target.id, group_ids: ids, ban });
+    removeStatus.hide();
+    removeGroupsFromView(res.outcomes.filter(o => o.ok).map(o => o.group_id));
+    renderOutcomes(res.outcomes);
+    loadAudit();
+  } catch (e) {
+    removeStatus.fail(e.message);
+    $("btn-remove-go").disabled = false; $("btn-remove-cancel").disabled = false;
+  }
+}
+
+function renderOutcomes(outcomes) {
+  const labels = { kicked: "Removed", banned: "Banned", not_member: "Not a member",
+                   skipped: "Skipped", failed: "Failed" };
+  const okN = outcomes.filter(o => o.ok).length;
+  const rows = outcomes.map(o =>
+    `<div class="outcome ${o.ok ? "" : "bad"}"><span>${o.ok ? "✓" : "✕"}</span>` +
+    `<span>${esc(o.group_title)} — <strong>${labels[o.action] || o.action}</strong>` +
+    `${o.detail ? `<span class="muted"> — ${esc(o.detail)}</span>` : ""}</span></div>`).join("");
+  // Replace the whole confirm panel with the outcomes, keeping the bordered box.
+  $("action-area").innerHTML =
+    `<div class="confirm">` +
+    `<div style="margin-bottom:6px;"><strong>${okN}/${outcomes.length} removed.</strong></div>` +
+    rows + `<button class="ghost" id="btn-rescan" style="margin-top:10px;">Re-scan to refresh</button>` +
+    `</div>`;
+  $("btn-rescan").onclick = () => $("btn-scan").click();
+}
+
+async function loadAudit() {
+  try {
+    const r = await api("/api/audit");
+    if (!r.entries.length) { show("audit-sec", false); return; }
+    $("audit-rows").innerHTML = r.entries.map(e => `<tr>
+      <td class="muted">${esc((e.ts || "").replace("T", " ").replace("+00:00", ""))}</td>
+      <td>${esc(e.group_title)}</td>
+      <td class="muted">${e.target_handle ? "@" + esc(e.target_handle) : "—"}</td>
+      <td>${esc(e.action)}</td>
+      <td>${e.ok ? '<span style="color:#74d68a">✓</span>' : '<span style="color:#e57373">✕</span>'}` +
+        `${e.detail ? `<div class="muted">${esc(e.detail)}</div>` : ""}</td>
+    </tr>`).join("");
+    show("audit-sec", true);
+  } catch (e) { /* audit is best-effort; ignore */ }
+}
+$("btn-audit-refresh").onclick = loadAudit;
+
+// Reveal the 2FA password so the user can verify exactly what's in the field.
+$("show-pw").addEventListener("change", (e) => {
+  $("password").type = e.target.checked ? "text" : "password";
+});
+
+// ToS acknowledgement gate (persisted per browser).
+$("ack-chk").addEventListener("change", (e) => { $("btn-ack").disabled = !e.target.checked; });
+$("btn-ack").onclick = () => { localStorage.setItem("tg_ack", "1"); refresh(); };
+
+// Submit on Enter for each input -> its associated button.
+[["phone", "btn-send-code"], ["code", "btn-sign-in"],
+ ["password", "btn-password"], ["handle", "btn-scan"]].forEach(([inp, btn]) => {
+  $(inp).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); $(btn).click(); }
+  });
+});
+
+refresh();
+</script>
+</body>
+</html>

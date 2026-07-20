@@ -1,0 +1,11 @@
+# Dev install for the whole monorepo.
+#   python3 -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# Installs the shared core (editable) plus the web/app dependencies used by the
+# self-hosted app. Core's own deps (telethon, pydantic, cryptography) come in via
+# the editable install of ./core.
+-e ./core
+fastapi>=0.111
+uvicorn[standard]>=0.30
+pydantic-settings>=2.3
