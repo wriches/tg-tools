@@ -302,6 +302,7 @@ async def ws_build(ws: WebSocket) -> None:
             mode=mode, title=r.get("title"),
             group_ids=[int(g) for g in group_ids],
             user_ids=[int(u) for u in user_ids],
+            settings=r.get("settings"),
             on_event=on_event,
         )
         await ws.send_json({"type": "result", "data": result})

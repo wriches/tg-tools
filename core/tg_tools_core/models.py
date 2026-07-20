@@ -83,6 +83,22 @@ class ResolveResult(BaseModel):
     unresolved: list[UnresolvedInput]
 
 
+class GroupSettings(BaseModel):
+    """Optional settings applied to a newly created group. Booleans mirror the
+    Telegram UI: True = allowed/on. Defaults match a permissive new group."""
+    about: str = ""
+    history_visible: bool = True   # new members can read messages sent before they joined
+    # Default member permissions:
+    send_messages: bool = True
+    send_media: bool = True         # photos, videos, files, music, voice
+    send_stickers: bool = True      # stickers, GIFs, games, inline bots
+    send_polls: bool = True
+    embed_links: bool = True        # links with previews
+    invite_users: bool = True       # add other members
+    pin_messages: bool = True
+    change_info: bool = True         # name, photo, description
+
+
 # Outcome of attempting to add one user to a group.
 # status: added | needs_invite | already_member | failed
 class AddOutcome(BaseModel):

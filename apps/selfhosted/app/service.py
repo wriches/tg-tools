@@ -10,6 +10,7 @@ from tg_tools_core.exceptions import NotAuthorizedError
 from tg_tools_core.contact import send_message as core_send_message
 from tg_tools_core.build import (
     add_users,
+    apply_group_settings,
     create_supergroup,
     export_invite,
     get_contacts as core_get_contacts,
@@ -19,6 +20,7 @@ from tg_tools_core.build import (
 )
 from tg_tools_core.models import (
     AddableGroup,
+    GroupSettings,
     RemovalOutcome,
     ResolveResult,
     ScanResult,
@@ -180,7 +182,7 @@ class SelfHostedService:
 
     async def build_and_add(
         self, *, mode: str, title: str | None, group_ids: list[int],
-        user_ids: list[int], on_event=None,
+        user_ids: list[int], settings: dict | None = None, on_event=None,
     ) -> dict:
         """Add the resolved users to one destination (create mode) or several
         existing groups. Each group is processed in turn; a spam limit stops the
@@ -192,10 +194,13 @@ class SelfHostedService:
         if mode == "create":
             if not (title or "").strip():
                 raise ValueError("Enter a name for the new group.")
-            group = await create_supergroup(client, title.strip())
+            gs = GroupSettings(**settings) if settings else GroupSettings()
+            group = await create_supergroup(client, title.strip(), about=gs.about)
+            warnings = await apply_group_settings(client, group, gs)
             dests.append((
                 {"id": group.id, "title": getattr(group, "title", ""),
-                 "username": getattr(group, "username", None), "created": True},
+                 "username": getattr(group, "username", None), "created": True,
+                 "settings_warnings": warnings},
                 group, None,
             ))
         else:

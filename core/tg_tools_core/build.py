@@ -35,13 +35,28 @@ from telethon.errors import (
     UserPrivacyRestrictedError,
     UsersTooMuchError,
 )
-from telethon.tl.functions.channels import CreateChannelRequest, InviteToChannelRequest
+from telethon.tl.functions.channels import (
+    CreateChannelRequest,
+    InviteToChannelRequest,
+    TogglePreHistoryHiddenRequest,
+)
 from telethon.tl.functions.contacts import GetContactsRequest
-from telethon.tl.functions.messages import AddChatUserRequest, ExportChatInviteRequest
-from telethon.tl.types import Channel, Chat, User
+from telethon.tl.functions.messages import (
+    AddChatUserRequest,
+    EditChatDefaultBannedRightsRequest,
+    ExportChatInviteRequest,
+)
+from telethon.tl.types import ChatBannedRights, Channel, Chat, User
 
 from .client import user_brief
-from .models import AddableGroup, AddOutcome, ResolveResult, UnresolvedInput, UserBrief
+from .models import (
+    AddableGroup,
+    AddOutcome,
+    GroupSettings,
+    ResolveResult,
+    UnresolvedInput,
+    UserBrief,
+)
 from .scan import normalize_handle
 
 log = logging.getLogger(__name__)
@@ -207,6 +222,53 @@ async def resolve_users(
     resolved_list = sorted(resolved.values(), key=lambda b: (b.name or b.username or "").lower())
     unresolved.sort(key=lambda u: u.input.lower())
     return ResolveResult(resolved=resolved_list, unresolved=unresolved)
+
+
+def _banned_rights(s: GroupSettings) -> ChatBannedRights:
+    """Translate the (True = allowed) settings into Telegram's ChatBannedRights
+    (True = banned). Media/sticker toggles cover the granular sub-flags too, so
+    the setting behaves the same regardless of client layer."""
+    no = lambda allowed: not allowed
+    return ChatBannedRights(
+        until_date=0,
+        send_messages=no(s.send_messages),
+        send_plain=no(s.send_messages),
+        send_media=no(s.send_media),
+        send_photos=no(s.send_media),
+        send_videos=no(s.send_media),
+        send_roundvideos=no(s.send_media),
+        send_audios=no(s.send_media),
+        send_voices=no(s.send_media),
+        send_docs=no(s.send_media),
+        send_stickers=no(s.send_stickers),
+        send_gifs=no(s.send_stickers),
+        send_games=no(s.send_stickers),
+        send_inline=no(s.send_stickers),
+        send_polls=no(s.send_polls),
+        embed_links=no(s.embed_links),
+        invite_users=no(s.invite_users),
+        pin_messages=no(s.pin_messages),
+        change_info=no(s.change_info),
+    )
+
+
+async def apply_group_settings(client: TelegramClient, channel, s: GroupSettings) -> list[str]:
+    """Best-effort: apply history visibility + default member permissions to a
+    freshly created group. Returns a list of human-readable warnings for any
+    setting that couldn't be applied (the group itself is already created)."""
+    warnings: list[str] = []
+    try:
+        # enabled=True hides pre-join history from new members.
+        await client(TogglePreHistoryHiddenRequest(channel, enabled=not s.history_visible))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("history visibility failed: %s", exc)
+        warnings.append("Couldn't set chat-history visibility.")
+    try:
+        await client(EditChatDefaultBannedRightsRequest(peer=channel, banned_rights=_banned_rights(s)))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("default permissions failed: %s", exc)
+        warnings.append("Couldn't set member permissions.")
+    return warnings
 
 
 async def create_supergroup(client: TelegramClient, title: str, about: str = "") -> Channel:

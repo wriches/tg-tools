@@ -98,6 +98,16 @@
     .muted { color:var(--muted); }
     /* Builder */
     .bsub { font-weight:600; font-size:13px; margin:0 0 6px; }
+    details.gset > summary { cursor:pointer; color:var(--accent); font-size:13px; user-select:none;
+             list-style:none; padding:4px 0; }
+    details.gset > summary::-webkit-details-marker { display:none; }
+    details.gset > summary::before { content:"▸ "; }
+    details.gset[open] > summary::before { content:"▾ "; }
+    .gs-check { display:flex; align-items:center; gap:8px; color:var(--fg); font-size:14px;
+             margin:5px 0; cursor:pointer; }
+    .gs-check input { width:auto; flex-shrink:0; }
+    .gs-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 18px; }
+    @media (max-width:520px) { .gs-grid { grid-template-columns:1fr; } }
     select { width:100%; padding:9px 10px; background:#0d0f14; border:1px solid var(--line);
              border-radius:7px; color:var(--fg); font-size:14px; }
     .contacts-box { max-height:240px; overflow-y:auto; border:1px solid var(--line);
@@ -232,6 +242,31 @@
       <input id="group-title" placeholder="e.g. Weekend Football" maxlength="255"
         autocomplete="off" autocapitalize="sentences" spellcheck="false" />
       <div class="note">Creates a supergroup (scales to large membership) that you'll own.</div>
+
+      <details class="gset" id="group-settings">
+        <summary>Group settings</summary>
+        <div style="margin-top:8px;">
+          <label>Description (optional)</label>
+          <textarea id="gs-about" rows="2" maxlength="255"
+            placeholder="What's this group about?"></textarea>
+
+          <div class="bsub" style="margin-top:14px;">Chat history for new members</div>
+          <label class="gs-check"><input type="checkbox" id="gs-history_visible" checked>
+            Visible — new members can read messages sent before they joined</label>
+
+          <div class="bsub" style="margin-top:14px;">What members can do</div>
+          <div class="gs-grid">
+            <label class="gs-check"><input type="checkbox" id="gs-send_messages" checked> Send messages</label>
+            <label class="gs-check"><input type="checkbox" id="gs-send_media" checked> Send media &amp; files</label>
+            <label class="gs-check"><input type="checkbox" id="gs-send_stickers" checked> Send stickers &amp; GIFs</label>
+            <label class="gs-check"><input type="checkbox" id="gs-send_polls" checked> Send polls</label>
+            <label class="gs-check"><input type="checkbox" id="gs-embed_links" checked> Add links (with previews)</label>
+            <label class="gs-check"><input type="checkbox" id="gs-invite_users" checked> Add other members</label>
+            <label class="gs-check"><input type="checkbox" id="gs-pin_messages" checked> Pin messages</label>
+            <label class="gs-check"><input type="checkbox" id="gs-change_info" checked> Change group info</label>
+          </div>
+        </div>
+      </details>
     </div>
     <div id="dest-existing" class="hide">
       <div class="row" style="justify-content:space-between; align-items:flex-end;">
@@ -1186,12 +1221,38 @@ function resolveViaWs(text, onProgress) {
   });
 }
 
+// New-group settings (create mode). Booleans are "allowed" (checkbox checked).
+const GS_PERMS = ["send_messages", "send_media", "send_stickers", "send_polls",
+                  "embed_links", "invite_users", "pin_messages", "change_info"];
+const GS_LABELS = { send_messages: "send messages", send_media: "send media",
+  send_stickers: "stickers/GIFs", send_polls: "polls", embed_links: "links",
+  invite_users: "add members", pin_messages: "pin", change_info: "change info" };
+function readGroupSettings() {
+  const s = { about: $("gs-about").value.trim(), history_visible: $("gs-history_visible").checked };
+  GS_PERMS.forEach(k => s[k] = $("gs-" + k).checked);
+  return s;
+}
+function resetGroupSettings() {
+  $("gs-about").value = "";
+  $("gs-history_visible").checked = true;
+  GS_PERMS.forEach(k => $("gs-" + k).checked = true);
+  $("group-settings").open = false;
+}
+function settingsSummary(s) {
+  const off = GS_PERMS.filter(k => !s[k]).map(k => GS_LABELS[k]);
+  const parts = [`history ${s.history_visible ? "visible" : "hidden"}`];
+  if (s.about) parts.push("description set");
+  parts.push(off.length ? `members can’t: ${off.join(", ")}` : "all member permissions on");
+  return parts.join(" · ");
+}
+
 $("btn-build-preview").onclick = () => {
   const mode = document.querySelector('input[name="dest"]:checked').value;
-  let title = "", groupIds = [], groupLabels = [];
+  let title = "", groupIds = [], groupLabels = [], settings = null;
   if (mode === "create") {
     title = $("group-title").value.trim();
     if (!title) { resolveStatus.fail("Enter a name for the new group."); return; }
+    settings = readGroupSettings();
   } else {
     const sel = [...selectedGroups.values()];
     if (!sel.length) { resolveStatus.fail("Select at least one existing group to add people to."); return; }
@@ -1221,7 +1282,7 @@ $("btn-build-preview").onclick = () => {
     resolved.forEach(u => byId.set(u.id, u));
     const recipients = [...byId.values()].sort((a, b) =>
       (a.name || a.username || "").toLowerCase().localeCompare((b.name || b.username || "").toLowerCase()));
-    buildPlan = { mode, title, groupIds, groupLabels, recipients };
+    buildPlan = { mode, title, groupIds, groupLabels, recipients, settings };
     renderBuildPreview({ ...buildPlan, unresolved });
   });
 };
@@ -1244,7 +1305,8 @@ function renderBuildPreview(p) {
   if (p.mode === "create") {
     destLine = `Create a new supergroup <strong>“${esc(p.title)}”</strong> and add:`;
     goLabel = "Create group &amp; add";
-    scale = canGo ? `<div class="note">${n} ${n === 1 ? "person" : "people"} to add.</div>` : "";
+    const settingsLine = p.settings ? `<div class="note">Settings: ${esc(settingsSummary(p.settings))}</div>` : "";
+    scale = (canGo ? `<div class="note">${n} ${n === 1 ? "person" : "people"} to add.</div>` : "") + settingsLine;
   } else {
     const gchips = p.groupLabels.map(t => `<span class="pill">${esc(t)}</span>`).join(" ");
     destLine = `Add to <strong>${m} group${m > 1 ? "s" : ""}</strong>: <span class="recips">${gchips}</span><div style="margin-top:6px;">People:</div>`;
@@ -1306,7 +1368,8 @@ async function doBuild() {
   let seenGroups = totalGroups;
   try {
     const res = await buildViaWs(
-      { mode: p.mode, title: p.title, group_ids: p.groupIds, user_ids: p.recipients.map(u => u.id) },
+      { mode: p.mode, title: p.title, group_ids: p.groupIds, user_ids: p.recipients.map(u => u.id),
+        settings: p.mode === "create" ? p.settings : undefined },
       (m) => {
         if (m.type === "plan") {
           seenGroups = m.total_groups;
@@ -1359,9 +1422,12 @@ function groupResultHtml(g) {
     items.map(x => `<div class="outcome"><span>${esc(x.name) || "(no name)"}` +
       `${x.username ? ` <span class="muted">@${esc(x.username)}</span>` : ""}` +
       `${reason && x.detail ? ` <span class="muted">— ${esc(x.detail)}</span>` : ""}</span></div>`).join("") + `</div>` : "";
+  const settingsWarn = (gg.settings_warnings && gg.settings_warnings.length)
+    ? `<div class="warn">⚠ ${gg.settings_warnings.map(esc).join(" ")}</div>` : "";
   return `<div class="gres">
     <div><strong>${gg.created ? "Created" : "Group"}: ${titleHtml}</strong></div>
     <div class="note" style="margin-top:4px;">${added.length} added · ${needs.length} need an invite · ${already.length} already in · ${failed.length} failed</div>
+    ${settingsWarn}
     ${g.aborted ? `<div class="warn">⚠ ${esc(g.aborted)}</div>` : ""}
     ${section("✓ Added", "ok-txt", added, false)}
     ${section("Already members", "muted", already, false)}
@@ -1519,6 +1585,7 @@ async function inviteSendAll(key) {
 function resetBuilder() {
   $("paste-users").value = "";
   $("group-title").value = "";
+  resetGroupSettings();
   selectedContacts.clear(); updateContactsCount(); renderContactChips(); renderContacts($("contact-search").value);
   selectedGroups.clear(); updateGroupsCount(); renderGroupChips(); renderGroups($("group-search").value);
   buildPlan = null; inviteFlows.clear();

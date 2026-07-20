@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from tg_tools_core.models import UserBrief
+from tg_tools_core.models import GroupSettings, UserBrief
 
 
 class SendCodeRequest(BaseModel):
@@ -55,3 +55,4 @@ class BuildRequest(BaseModel):
     title: str | None = None
     group_ids: list[int] = []
     user_ids: list[int] = []
+    settings: GroupSettings | None = None
