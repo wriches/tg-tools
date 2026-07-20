@@ -1,11 +1,16 @@
 # tg-tools
 
 A small, self-hosted suite of Telegram utilities you run against your own
-account. It currently has one tool:
+account. It currently has two tools:
 
 **Remover** — find the groups you share with a given user and coordinate
 removing them: remove them yourself where you have rights, or draft aggregated
 requests to the groups' owners/admins where you don't.
+
+**Builder** — create a group (or pick an existing one you can add to) and bulk-add
+people: paste usernames in any format and/or multi-select your contacts. Anyone
+whose privacy settings block a direct add is offered the group's invite link,
+which you can send them as a throttled DM.
 
 ## How it works (and its limits)
 

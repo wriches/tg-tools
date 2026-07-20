@@ -96,6 +96,33 @@
     .summary span { margin-right:16px; }
     .note { color:var(--muted); font-size:12px; }
     .muted { color:var(--muted); }
+    /* Builder */
+    .bsub { font-weight:600; font-size:13px; margin:0 0 6px; }
+    select { width:100%; padding:9px 10px; background:#0d0f14; border:1px solid var(--line);
+             border-radius:7px; color:var(--fg); font-size:14px; }
+    .contacts-box { max-height:240px; overflow-y:auto; border:1px solid var(--line);
+                    border-radius:7px; background:#0d0f14; margin-top:6px; }
+    .contact-row { display:flex; gap:8px; align-items:center; padding:6px 10px; cursor:pointer;
+                   border-bottom:1px solid var(--line); font-size:14px; }
+    .contact-row:last-child { border-bottom:0; }
+    .contact-row:hover { background:#11141a; }
+    .contact-row input { width:auto; flex-shrink:0; }
+    .contacts-empty { padding:10px; }
+    .chips { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 0; }
+    .chip { display:inline-flex; align-items:center; gap:2px; background:rgba(59,130,246,.15);
+            border:1px solid var(--accent); border-radius:20px; padding:2px 4px 2px 10px;
+            font-size:12px; color:var(--fg); max-width:100%; }
+    .chip .chip-lbl { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:200px; }
+    .chip-x { background:transparent; border:0; color:var(--muted); cursor:pointer;
+              font-size:16px; line-height:1; padding:0 4px; }
+    .chip-x:hover { color:var(--fg); }
+    .recips { margin:8px 0; }
+    .status-group { margin:14px 0 4px; }
+    .status-group h4 { margin:0 0 4px; font-size:13px; }
+    .gres { border:1px solid var(--line); border-radius:8px; padding:12px; margin:10px 0; }
+    .copybox { display:flex; gap:8px; align-items:center; margin:8px 0; }
+    .copybox input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; }
+    .ok-txt { color:#74d68a; } .warn-txt { color:#e3b341; } .bad-txt { color:#e57373; }
   </style>
 </head>
 <body>
@@ -155,9 +182,10 @@
   <!-- TOOL NAV (one tool for now; extensible) -->
   <nav id="tools-nav" class="tools-nav hide">
     <button type="button" class="tool-tab active" data-tool="remover">Remover</button>
+    <button type="button" class="tool-tab" data-tool="builder">Builder</button>
   </nav>
   <div id="tool-header" class="tool-header hide">
-    <p class="sub" style="margin:0;">Find groups you share with a Telegram user, remove them where you can, and message the admins of the rest to ask. All actions are <strong>real</strong> and require confirmation.</p>
+    <p class="sub" id="tool-desc" style="margin:0;"></p>
   </div>
 
   <!-- SCAN (Remover tool) -->
@@ -188,6 +216,68 @@
     <div id="action-area"></div>
   </section>
 
+  <!-- BUILDER tool -->
+  <section id="builder" class="panel hide">
+    <div class="bsub">Destination</div>
+    <div class="row" style="gap:18px; margin-bottom:10px;">
+      <label style="display:inline-flex; gap:6px; align-items:center; cursor:pointer;">
+        <input type="radio" name="dest" value="create" checked style="width:auto;"> Create a new group
+      </label>
+      <label style="display:inline-flex; gap:6px; align-items:center; cursor:pointer;">
+        <input type="radio" name="dest" value="existing" style="width:auto;"> Add to an existing group
+      </label>
+    </div>
+    <div id="dest-create">
+      <label>New group name</label>
+      <input id="group-title" placeholder="e.g. Weekend Football" maxlength="255"
+        autocomplete="off" autocapitalize="sentences" spellcheck="false" />
+      <div class="note">Creates a supergroup (scales to large membership) that you'll own.</div>
+    </div>
+    <div id="dest-existing" class="hide">
+      <div class="row" style="justify-content:space-between; align-items:flex-end;">
+        <label style="margin:0;">Existing groups — select one or more you can add members to</label>
+        <div class="row" style="gap:8px; align-items:center; flex:0 0 auto;">
+          <span class="note" id="groups-cache-note"></span>
+          <button class="ghost" id="btn-groups-refresh" type="button">Refresh</button>
+        </div>
+      </div>
+      <input id="group-search" type="search" placeholder="Search groups…" autocomplete="off" style="margin-top:6px;" />
+      <div id="groups-chips" class="chips hide"></div>
+      <div id="groups-box" class="contacts-box"><div class="muted contacts-empty">Loading…</div></div>
+      <div class="row" style="justify-content:space-between; align-items:center; margin-top:6px;">
+        <span class="note" id="groups-count">No groups selected.</span>
+        <button class="ghost" id="btn-groups-clear" type="button">Clear selection</button>
+      </div>
+    </div>
+
+    <div class="bsub" style="margin-top:18px;">People to add</div>
+    <label>Paste usernames — any format (<code>@name</code>, <code>name</code>, <code>t.me/name</code>), separated by spaces, commas or new lines</label>
+    <textarea id="paste-users" rows="4" placeholder="@alice, bob&#10;t.me/charlie"></textarea>
+
+    <div class="row" style="justify-content:space-between; align-items:center; margin-top:14px;">
+      <label style="margin:0;">…and/or pick from your contacts</label>
+      <input id="contact-search" type="search" placeholder="Search contacts…"
+        autocomplete="off" style="max-width:220px;" />
+    </div>
+    <div id="contacts-chips" class="chips hide"></div>
+    <div id="contacts-box" class="contacts-box">
+      <div class="muted contacts-empty">Loading contacts…</div>
+    </div>
+    <div class="row" style="justify-content:space-between; align-items:center; margin-top:6px;">
+      <span class="note" id="contacts-count">No contacts selected.</span>
+      <button class="ghost" id="btn-contacts-clear" type="button">Clear selection</button>
+    </div>
+
+    <div class="status hide" id="resolve-status"><span class="bar" id="resolve-bar"></span><span id="resolve-msg"></span></div>
+    <div class="row" style="margin-top:12px;">
+      <button id="btn-build-preview" type="button">Preview recipients</button>
+    </div>
+  </section>
+
+  <section id="build-results" class="panel hide">
+    <div id="build-area"></div>
+  </section>
+
   <section id="audit-sec" class="panel hide">
     <div class="row" style="justify-content:space-between; align-items:center;">
       <strong>Activity history</strong>
@@ -202,6 +292,15 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+// FastAPI's `detail` is a string for our HTTPExceptions but an array of
+// {loc,msg,...} objects for 422 validation errors — render both readably.
+const errMsg = (data, status) => {
+  const d = data && data.detail;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d)) return d.map(e => (e && e.msg) ? e.msg : JSON.stringify(e)).join("; ");
+  if (d) return JSON.stringify(d);
+  return "HTTP " + status;
+};
 const api = async (path, body) => {
   const res = await fetch(path, {
     method: body ? "POST" : "GET",
@@ -211,9 +310,9 @@ const api = async (path, body) => {
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
     refresh();  // session expired mid-use -> drop back to the login screen
-    throw new Error(data.detail || "Session expired — please log in again.");
+    throw new Error(errMsg(data, 401) || "Session expired — please log in again.");
   }
-  if (!res.ok) throw new Error(data.detail || ("HTTP " + res.status));
+  if (!res.ok) throw new Error(errMsg(data, res.status));
   return data;
 };
 const show = (id, on = true) => $(id).classList.toggle("hide", !on);
@@ -257,18 +356,22 @@ async function refresh() {
     $("me").textContent = "Signed in as " + (m.name || "") + (m.username ? " (@" + m.username + ")" : "");
     if (localStorage.getItem("tg_ack")) {
       show("ack", false);
-      show("tools-nav", true); show("tool-header", true); show("scan", true);
+      show("tools-nav", true); show("tool-header", true);
+      setActiveTool(currentTool);
       loadAudit();
     } else {
       show("ack", true);
-      show("tools-nav", false); show("tool-header", false); show("scan", false);
-      show("results", false); show("audit-sec", false); show("profile", false);
+      hideToolsUI();
     }
   } else {
     show("auth", true); show("app", false); show("ack", false);
-    show("tools-nav", false); show("tool-header", false); show("scan", false);
-    show("results", false); show("audit-sec", false); show("profile", false);
+    hideToolsUI();
   }
+}
+
+function hideToolsUI() {
+  ["tools-nav", "tool-header", "scan", "results", "profile", "builder", "build-results", "audit-sec"]
+    .forEach(id => show(id, false));
 }
 
 // Disable a button and show progress text for the duration of an async action,
@@ -330,6 +433,25 @@ function scanViaWs(handle, onProgress) {
 const authStatus = mkStatus("auth-status", "auth-bar", "auth-msg");
 const scanStatus = mkStatus("scan-status", "scan-bar", "scan-msg");
 let lastScan = null;  // most recent scan result, used by the removal flow
+let currentTool = "remover";
+
+// ---- tool switching (Remover / Builder) ----
+const TOOL_DESC = {
+  remover: 'Find groups you share with a Telegram user, remove them where you can, and message the admins of the rest to ask. All actions are <strong>real</strong> and require confirmation.',
+  builder: 'Create a group (or pick one you own) and add people in bulk — paste usernames and/or select contacts. Anyone whose privacy settings block a direct add can be sent an invite link. All actions are <strong>real</strong>.',
+};
+function setActiveTool(tool) {
+  currentTool = tool;
+  document.querySelectorAll(".tool-tab").forEach(b => b.classList.toggle("active", b.dataset.tool === tool));
+  $("tool-desc").innerHTML = TOOL_DESC[tool] || "";
+  const rem = tool === "remover", bld = tool === "builder";
+  show("scan", rem);
+  show("results", rem && !!lastScan);
+  show("builder", bld);
+  show("build-results", bld && !!$("build-area").innerHTML.trim());
+  if (bld) initBuilder();
+}
+document.querySelectorAll(".tool-tab").forEach(b => b.onclick = () => setActiveTool(b.dataset.tool));
 
 $("btn-send-code").onclick = () => {
   const { value, error } = validatePhone($("phone").value);
@@ -849,6 +971,558 @@ $("btn-audit-refresh").onclick = loadAudit;
 $("show-pw").addEventListener("change", (e) => {
   $("password").type = e.target.checked ? "text" : "password";
 });
+
+// ============================ Builder tool ============================
+let contacts = [];                     // loaded contact UserBriefs
+const selectedContacts = new Map();    // id -> UserBrief (survives search filtering)
+let groups = [];                       // loaded addable groups
+const selectedGroups = new Map();      // id -> AddableGroup
+let builderInited = false;
+let buildPlan = null;                  // { mode, title, groupIds, groupLabels, recipients }
+const inviteFlows = new Map();         // group id -> { drafts:[...] } for invite DMs
+const resolveStatus = mkStatus("resolve-status", "resolve-bar", "resolve-msg");
+
+function initBuilder() {
+  if (builderInited) return;
+  builderInited = true;
+  loadContacts();
+  // Groups load only when "existing" mode is chosen (ensureGroups).
+}
+
+// Destination radio toggle.
+document.querySelectorAll('input[name="dest"]').forEach(r => r.onchange = () => {
+  const mode = document.querySelector('input[name="dest"]:checked').value;
+  show("dest-create", mode === "create");
+  show("dest-existing", mode === "existing");
+  if (mode === "existing") ensureGroups();
+});
+
+// ---- addable-group list: cached in localStorage, streamed-load with progress ----
+const GROUPS_CACHE_KEY = "tg_groups_cache";
+const GROUPS_TTL = 7 * 864e5;   // 7 days
+
+function readGroupsCache() {
+  try { const c = JSON.parse(localStorage.getItem(GROUPS_CACHE_KEY));
+    return (c && Array.isArray(c.groups) && c.ts) ? c : null; } catch { return null; }
+}
+function writeGroupsCache(gs) {
+  try { localStorage.setItem(GROUPS_CACHE_KEY, JSON.stringify({ ts: Date.now(), groups: gs })); } catch {}
+}
+// Keep a just-created group visible without a full reload.
+function addGroupToCache(info) {
+  const g = { id: info.id, title: info.title, username: info.username || null, type: "supergroup", members_count: null };
+  if (!groups.some(x => x.id === g.id)) groups.unshift(g);
+  const c = readGroupsCache();
+  if (c && !c.groups.some(x => x.id === g.id)) { c.groups.unshift(g); writeGroupsCache(c.groups); }
+}
+function agoStr(ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+function setGroupsCacheNote(ts) {
+  $("groups-cache-note").textContent = ts ? `cached · ${agoStr(ts)}` : "";
+}
+function ensureGroups() {
+  const c = readGroupsCache();
+  if (c && (Date.now() - c.ts) < GROUPS_TTL) {
+    groups = c.groups; renderGroups($("group-search").value); setGroupsCacheNote(c.ts);
+  } else {
+    loadGroupsStreaming();
+  }
+}
+function groupsViaWs(onProgress) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, arg) => { if (!settled) { settled = true; fn(arg); } };
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://${location.host}/ws/groups`);
+    ws.onopen = () => ws.send(JSON.stringify({}));
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.type === "progress") onProgress(m.scanned, m.found);
+      else if (m.type === "result") { finish(resolve, m.groups); ws.close(); }
+      else if (m.type === "error") { finish(reject, new Error(m.detail)); ws.close(); }
+    };
+    ws.onerror = () => finish(reject, new Error("Group load connection error."));
+    ws.onclose = () => finish(reject, new Error("Group load connection closed unexpectedly."));
+  });
+}
+let groupsLoading = false;
+async function loadGroupsStreaming() {
+  if (groupsLoading) return;
+  groupsLoading = true;
+  setGroupsCacheNote(null);
+  const box = $("groups-box");
+  box.innerHTML = `<div class="muted contacts-empty">Loading your groups…</div>`;
+  try {
+    const gs = await groupsViaWs((scanned, found) => {
+      box.innerHTML = `<div class="muted contacts-empty">Loading your groups… scanned ${scanned}, found ${found}</div>`;
+    });
+    groups = gs; writeGroupsCache(gs); renderGroups($("group-search").value); setGroupsCacheNote(null);
+  } catch (e) {
+    box.innerHTML = `<div class="bad-txt contacts-empty">Couldn't load groups: ${esc(e.message)}</div>`;
+  } finally { groupsLoading = false; }
+}
+function renderGroups(q) {
+  const box = $("groups-box");
+  if (!groups.length) { box.innerHTML = `<div class="muted contacts-empty">No groups you can add members to.</div>`; return; }
+  const ql = (q || "").trim().toLowerCase();
+  const shown = groups.filter(g => !ql || ((g.title || "") + " " + (g.username || "")).toLowerCase().includes(ql));
+  if (!shown.length) { box.innerHTML = `<div class="muted contacts-empty">No groups match “${esc(q)}”.</div>`; return; }
+  box.innerHTML = shown.map(g => {
+    const meta = `${g.type}${g.members_count != null ? ` · ${g.members_count}` : ""}`;
+    return `<label class="contact-row">
+      <input type="checkbox" class="group-chk" data-id="${g.id}" ${selectedGroups.has(g.id) ? "checked" : ""}>
+      <span class="cname">${esc(g.title)}</span>
+      <span class="muted">${meta}</span>
+    </label>`;
+  }).join("");
+  box.querySelectorAll(".group-chk").forEach(chk => chk.onchange = () => {
+    const id = Number(chk.dataset.id), g = groups.find(x => x.id === id);
+    if (chk.checked && g) selectedGroups.set(id, g); else selectedGroups.delete(id);
+    updateGroupsCount(); renderGroupChips();
+  });
+}
+function updateGroupsCount() {
+  const n = selectedGroups.size;
+  $("groups-count").textContent = n ? `${n} group${n > 1 ? "s" : ""} selected.` : "No groups selected.";
+}
+$("group-search").addEventListener("input", (e) => renderGroups(e.target.value));
+$("btn-groups-clear").onclick = () => {
+  selectedGroups.clear(); updateGroupsCount(); renderGroupChips(); renderGroups($("group-search").value);
+};
+$("btn-groups-refresh").onclick = () => loadGroupsStreaming();
+
+async function loadContacts() {
+  const box = $("contacts-box");
+  try {
+    const r = await api("/api/contacts");
+    contacts = r.contacts || [];
+    if (!contacts.length) { box.innerHTML = `<div class="muted contacts-empty">No contacts found.</div>`; return; }
+    renderContacts("");
+  } catch (e) {
+    box.innerHTML = `<div class="bad-txt contacts-empty">Couldn't load contacts: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderContacts(q) {
+  const box = $("contacts-box");
+  const ql = (q || "").trim().toLowerCase();
+  const shown = contacts.filter(c => !ql || ((c.name || "") + " " + (c.username || "")).toLowerCase().includes(ql));
+  if (!shown.length) { box.innerHTML = `<div class="muted contacts-empty">No contacts match “${esc(q)}”.</div>`; return; }
+  box.innerHTML = shown.map(c =>
+    `<label class="contact-row">
+      <input type="checkbox" class="contact-chk" data-id="${c.id}" ${selectedContacts.has(c.id) ? "checked" : ""}>
+      <span class="cname">${esc(c.name) || "(no name)"}</span>
+      <span class="muted">${c.username ? "@" + esc(c.username) : "no @username"}</span>
+    </label>`).join("");
+  box.querySelectorAll(".contact-chk").forEach(chk => chk.onchange = () => {
+    const id = Number(chk.dataset.id), c = contacts.find(x => x.id === id);
+    if (chk.checked && c) selectedContacts.set(id, c); else selectedContacts.delete(id);
+    updateContactsCount(); renderContactChips();
+  });
+}
+
+function updateContactsCount() {
+  const n = selectedContacts.size;
+  $("contacts-count").textContent = n ? `${n} contact${n > 1 ? "s" : ""} selected.` : "No contacts selected.";
+}
+
+// Selected items show as removable chips pinned at the top of each picker, so a
+// selection stays visible even after you change the search text (the list below
+// only shows what matches the current query).
+function renderChips(containerId, selected, onRemove) {
+  const el = $(containerId);
+  const items = [...selected.values()];
+  if (!items.length) { el.innerHTML = ""; el.classList.add("hide"); return; }
+  el.classList.remove("hide");
+  el.innerHTML = items.map(x => {
+    const label = x.title != null ? x.title : (x.name || (x.username ? "@" + x.username : "(no name)"));
+    return `<span class="chip"><span class="chip-lbl">${esc(label)}</span>` +
+      `<button type="button" class="chip-x" data-id="${x.id}" aria-label="Remove">×</button></span>`;
+  }).join("");
+  el.querySelectorAll(".chip-x").forEach(b => b.onclick = () => onRemove(Number(b.dataset.id)));
+}
+function renderContactChips() {
+  renderChips("contacts-chips", selectedContacts, (id) => {
+    selectedContacts.delete(id);
+    const chk = $("contacts-box").querySelector(`.contact-chk[data-id="${id}"]`);
+    if (chk) chk.checked = false;
+    updateContactsCount(); renderContactChips();
+  });
+}
+function renderGroupChips() {
+  renderChips("groups-chips", selectedGroups, (id) => {
+    selectedGroups.delete(id);
+    const chk = $("groups-box").querySelector(`.group-chk[data-id="${id}"]`);
+    if (chk) chk.checked = false;
+    updateGroupsCount(); renderGroupChips();
+  });
+}
+
+$("contact-search").addEventListener("input", (e) => renderContacts(e.target.value));
+$("btn-contacts-clear").onclick = () => {
+  selectedContacts.clear(); updateContactsCount(); renderContactChips(); renderContacts($("contact-search").value);
+};
+
+// Resolve pasted handles over a WebSocket so progress/flood-waits stream in.
+function resolveViaWs(text, onProgress) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, arg) => { if (!settled) { settled = true; fn(arg); } };
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://${location.host}/ws/resolve`);
+    ws.onopen = () => ws.send(JSON.stringify({ text }));
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.type === "progress") onProgress(m.done, m.total, m.wait);
+      else if (m.type === "result") { finish(resolve, m.data); ws.close(); }
+      else if (m.type === "error") { finish(reject, new Error(m.detail)); ws.close(); }
+    };
+    ws.onerror = () => finish(reject, new Error("Resolve connection error."));
+    ws.onclose = () => finish(reject, new Error("Resolve connection closed unexpectedly."));
+  });
+}
+
+$("btn-build-preview").onclick = () => {
+  const mode = document.querySelector('input[name="dest"]:checked').value;
+  let title = "", groupIds = [], groupLabels = [];
+  if (mode === "create") {
+    title = $("group-title").value.trim();
+    if (!title) { resolveStatus.fail("Enter a name for the new group."); return; }
+  } else {
+    const sel = [...selectedGroups.values()];
+    if (!sel.length) { resolveStatus.fail("Select at least one existing group to add people to."); return; }
+    groupIds = sel.map(g => g.id); groupLabels = sel.map(g => g.title);
+  }
+  const pasted = $("paste-users").value.trim();
+  const selected = [...selectedContacts.values()];
+  if (!pasted && !selected.length) {
+    resolveStatus.fail("Add at least one person — paste usernames or select contacts."); return;
+  }
+  withBusy("btn-build-preview", "Resolving…", async () => {
+    let resolved = [], unresolved = [];
+    if (pasted) {
+      resolveStatus.start("Resolving pasted usernames…");
+      try {
+        const r = await resolveViaWs(pasted, (done, total, wait) =>
+          resolveStatus.update(wait
+            ? `Telegram rate-limit — waiting ${wait}s… (${done}/${total})`
+            : `Resolving usernames… ${done}/${total}`));
+        resolved = r.resolved; unresolved = r.unresolved;
+        resolveStatus.hide();
+      } catch (e) { resolveStatus.fail(e.message); return; }
+    } else { resolveStatus.hide(); }
+    // Merge selected contacts + resolved handles, dedupe by id.
+    const byId = new Map();
+    selected.forEach(c => byId.set(c.id, c));
+    resolved.forEach(u => byId.set(u.id, u));
+    const recipients = [...byId.values()].sort((a, b) =>
+      (a.name || a.username || "").toLowerCase().localeCompare((b.name || b.username || "").toLowerCase()));
+    buildPlan = { mode, title, groupIds, groupLabels, recipients };
+    renderBuildPreview({ ...buildPlan, unresolved });
+  });
+};
+
+function buildShow(on) {
+  if (!on) $("build-area").innerHTML = "";
+  show("build-results", on);
+}
+
+function renderBuildPreview(p) {
+  const chips = p.recipients.map(u =>
+    `<span class="pill">${esc(u.name) || "(no name)"}${u.username ? " @" + esc(u.username) : ""}</span>`).join(" ");
+  const unres = (p.unresolved && p.unresolved.length)
+    ? `<div class="status-group"><h4 class="warn-txt">Skipped (${p.unresolved.length})</h4>` +
+      p.unresolved.map(u => `<div class="note">${esc(u.input)} — ${esc(u.reason)}</div>`).join("") + `</div>`
+    : "";
+  const canGo = p.recipients.length > 0;
+  const n = p.recipients.length, m = p.groupIds.length;
+  let destLine, goLabel, scale;
+  if (p.mode === "create") {
+    destLine = `Create a new supergroup <strong>“${esc(p.title)}”</strong> and add:`;
+    goLabel = "Create group &amp; add";
+    scale = canGo ? `<div class="note">${n} ${n === 1 ? "person" : "people"} to add.</div>` : "";
+  } else {
+    const gchips = p.groupLabels.map(t => `<span class="pill">${esc(t)}</span>`).join(" ");
+    destLine = `Add to <strong>${m} group${m > 1 ? "s" : ""}</strong>: <span class="recips">${gchips}</span><div style="margin-top:6px;">People:</div>`;
+    goLabel = m > 1 ? "Add to groups" : "Add to group";
+    scale = canGo
+      ? `<div class="note">${m > 1 ? `${n} × ${m} = up to ${n * m} adds, queued group by group.` : `${n} ${n === 1 ? "person" : "people"} to add.`}</div>`
+      : "";
+  }
+  $("build-area").innerHTML = `
+    <div class="confirm">
+      <div>${destLine}</div>
+      <div class="recips">${canGo ? chips : '<span class="muted">No addable people from your input.</span>'}</div>
+      ${scale}
+      ${unres}
+      <div class="row" style="gap:8px; margin-top:12px;">
+        ${canGo ? `<button id="btn-build-go">${goLabel}</button>` : ""}
+        <button class="ghost" id="btn-build-cancel">${canGo ? "Cancel" : "Back"}</button>
+      </div>
+    </div>`;
+  show("build-results", true);
+  $("build-results").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  $("btn-build-cancel").onclick = () => buildShow(false);
+  if (canGo) $("btn-build-go").onclick = doBuild;
+}
+
+// Create/populate a group over a WebSocket, streaming per-user progress.
+function buildViaWs(payload, onEvent) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, arg) => { if (!settled) { settled = true; fn(arg); } };
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://${location.host}/ws/build`);
+    ws.onopen = () => ws.send(JSON.stringify(payload));
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.type === "result") { finish(resolve, m.data); ws.close(); }
+      else if (m.type === "error") { finish(reject, new Error(m.detail)); ws.close(); }
+      else onEvent(m);
+    };
+    ws.onerror = () => finish(reject, new Error("Build connection error."));
+    ws.onclose = () => finish(reject, new Error("Build connection closed unexpectedly."));
+  });
+}
+
+async function doBuild() {
+  const p = buildPlan;
+  const totalGroups = p.mode === "create" ? 1 : p.groupIds.length;
+  $("build-area").innerHTML = `
+    <div class="confirm">
+      <div class="status hide" id="build-status"><span class="bar" id="build-bar"></span><span id="build-msg"></span></div>
+      <div id="build-warn"></div>
+      <div id="build-groups"></div>
+      <div class="row hide" id="build-done-row" style="margin-top:12px;"><button class="ghost" id="btn-build-done">Done</button></div>
+    </div>`;
+  show("build-results", true);
+  $("build-results").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  const buildStatus = mkStatus("build-status", "build-bar", "build-msg");
+  buildStatus.start(p.mode === "create" ? "Creating group…" : "Adding people…");
+  let seenGroups = totalGroups;
+  try {
+    const res = await buildViaWs(
+      { mode: p.mode, title: p.title, group_ids: p.groupIds, user_ids: p.recipients.map(u => u.id) },
+      (m) => {
+        if (m.type === "plan") {
+          seenGroups = m.total_groups;
+          buildStatus.update(`Adding ${m.total_users} ${m.total_users === 1 ? "person" : "people"} to ${m.total_groups} group${m.total_groups > 1 ? "s" : ""}…`);
+        } else if (m.type === "group_start") {
+          buildStatus.update(`Group ${m.group_index + 1}/${seenGroups}: “${m.group.title}”…`);
+        } else if (m.type === "progress") {
+          buildStatus.update(m.wait
+            ? `Group ${m.group_index + 1}/${seenGroups} — rate-limit, waiting ${m.wait}s… (${m.done}/${m.total})`
+            : `Group ${m.group_index + 1}/${seenGroups} — adding ${m.done}/${m.total}`);
+        } else if (m.type === "group_done") {
+          appendGroupResult(m);
+        }
+      });
+    // Ensure every group has a rendered section (belt-and-suspenders).
+    res.results.forEach(g => appendGroupResult(g));
+    res.results.forEach(g => { if (g.group.created) addGroupToCache(g.group); });
+    const totalAdded = res.results.reduce((n, g) => n + g.outcomes.filter(o => o.status === "added").length, 0);
+    buildStatus.done(`Done — ${totalAdded} added across ${res.results.length} group${res.results.length > 1 ? "s" : ""}.`);
+    if (res.stopped_all) $("build-warn").innerHTML = `<div class="warn">⚠ Stopped early (account-level): ${esc(res.stopped_all)}</div>`;
+    $("build-done-row").classList.remove("hide");
+    $("btn-build-done").onclick = () => { buildShow(false); resetBuilder(); };
+    loadAudit();
+  } catch (e) {
+    buildStatus.fail(e.message);
+    $("build-done-row").classList.remove("hide");
+    $("btn-build-done").onclick = () => { buildShow(false); };
+  }
+}
+
+// Append one group's result section as it finishes (idempotent by group id).
+function appendGroupResult(g) {
+  const key = g.group.id;
+  if (document.getElementById(`gres-${key}`)) return;
+  const div = document.createElement("div");
+  div.id = `gres-${key}`;
+  div.innerHTML = groupResultHtml(g);
+  $("build-groups").appendChild(div);
+  wireGroupResult(g);
+}
+
+function groupResultHtml(g) {
+  const o = g.outcomes, gg = g.group;
+  const by = (s) => o.filter(x => x.status === s);
+  const added = by("added"), already = by("already_member"), needs = by("needs_invite"), failed = by("failed");
+  const link = gg.username ? `https://t.me/${esc(gg.username)}` : (gg.id ? `tg://privatepost?channel=${gg.id}&post=1` : "");
+  const titleHtml = link ? `<a href="${link}">${esc(gg.title)}</a>` : esc(gg.title);
+  const section = (label, cls, items, reason) => items.length ? `
+    <div class="status-group"><h4 class="${cls}">${label} (${items.length})</h4>` +
+    items.map(x => `<div class="outcome"><span>${esc(x.name) || "(no name)"}` +
+      `${x.username ? ` <span class="muted">@${esc(x.username)}</span>` : ""}` +
+      `${reason && x.detail ? ` <span class="muted">— ${esc(x.detail)}</span>` : ""}</span></div>`).join("") + `</div>` : "";
+  return `<div class="gres">
+    <div><strong>${gg.created ? "Created" : "Group"}: ${titleHtml}</strong></div>
+    <div class="note" style="margin-top:4px;">${added.length} added · ${needs.length} need an invite · ${already.length} already in · ${failed.length} failed</div>
+    ${g.aborted ? `<div class="warn">⚠ ${esc(g.aborted)}</div>` : ""}
+    ${section("✓ Added", "ok-txt", added, false)}
+    ${section("Already members", "muted", already, false)}
+    ${section("Couldn’t add — need an invite", "warn-txt", needs, true)}
+    ${section("Failed", "bad-txt", failed, true)}
+    ${needs.length ? inviteSectionHtml(g, needs) : ""}
+  </div>`;
+}
+
+function inviteSectionHtml(g, needs) {
+  const key = g.group.id;
+  if (!g.invite_link) {
+    return `<div class="warn" style="margin-top:8px;">${needs.length} ${needs.length === 1 ? "person" : "people"} couldn't be added and no invite link could be generated (you may lack invite-link rights here).</div>`;
+  }
+  return `
+    <div class="status-group">
+      <h4>Invite the ${needs.length} who couldn't be added</h4>
+      <div class="copybox">
+        <input id="invite-link-${key}" type="text" readonly value="${esc(g.invite_link)}">
+        <button class="ghost btn-copy-invite" data-key="${key}" type="button">Copy</button>
+      </div>
+      <div id="invite-area-${key}">
+        <button class="btn-invite-dms" data-key="${key}" type="button">DM the invite link to these ${needs.length} ${needs.length === 1 ? "person" : "people"}</button>
+        <div class="note" style="margin-top:6px;">This messages non-contacts (throttled) and carries account-ban risk — send conservatively.</div>
+      </div>
+    </div>`;
+}
+
+function wireGroupResult(g) {
+  const key = g.group.id;
+  const root = document.getElementById(`gres-${key}`);
+  if (!root) return;
+  const copy = root.querySelector(".btn-copy-invite");
+  if (copy) copy.onclick = () => {
+    const inp = document.getElementById(`invite-link-${key}`); inp.select();
+    (navigator.clipboard?.writeText(inp.value) || Promise.reject()).then(
+      () => { copy.textContent = "Copied"; setTimeout(() => copy.textContent = "Copy", 1500); }, () => {});
+  };
+  const dm = root.querySelector(".btn-invite-dms");
+  if (dm) dm.onclick = () => startInviteDMs(key, g.invite_link, g.group.title, g.outcomes.filter(o => o.status === "needs_invite"));
+}
+
+const INVITE_TEMPLATE =
+`Hi {{name}},
+
+I tried to add you to {{group}} but your privacy settings didn't allow it. Here's an invite link to join:
+
+{{link}}`;
+
+// Invite-DM flows are keyed per group so several groups' invites can coexist.
+function startInviteDMs(key, link, groupTitle, needs) {
+  inviteFlows.set(key, {
+    // `needs` are AddOutcome objects (id is `user_id`, not `id`); normalize so
+    // the send payload has a valid `admin_id`.
+    drafts: needs.map((x, i) => ({
+      id: `${key}_${i}`,
+      user: { id: x.user_id ?? x.id, name: x.name, username: x.username },
+      status: "draft", detail: null,
+      text: INVITE_TEMPLATE
+        .replace(/\{\{\s*name\s*\}\}/g, x.name || (x.username ? "@" + x.username : "there"))
+        .replace(/\{\{\s*group\s*\}\}/g, groupTitle)
+        .replace(/\{\{\s*link\s*\}\}/g, link),
+    })),
+  });
+  renderInviteDrafts(key);
+}
+
+function renderInviteDrafts(key) {
+  const area = document.getElementById(`invite-area-${key}`);
+  const f = inviteFlows.get(key);
+  if (!area || !f) return;
+  area.innerHTML = `
+    <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <strong>Invite DMs (<span id="inv-count-${key}">${f.drafts.length}</span>)</strong>
+      <button class="btn-inv-send-all" data-key="${key}" type="button">Send all</button>
+    </div>
+    <div id="inv-warning-${key}" class="warn hide"></div>
+    <div id="inv-drafts-${key}"></div>`;
+  area.querySelector(".btn-inv-send-all").onclick = () => inviteSendAll(key);
+  refreshInviteDrafts(key);
+}
+
+function inviteDraftCard(d) {
+  const u = d.user;
+  const who = `${esc(u.name) || "(no name)"}${u.username ? ` <span class="muted">@${esc(u.username)}</span>` : ' <span class="muted">(no @username)</span>'}`;
+  const sent = d.status === "sent", sending = d.status === "sending";
+  const st = sent ? `<span class="draft-status ok">✓ Sent</span>`
+    : d.status === "failed" ? `<span class="draft-status err">✕ ${esc(d.detail || "Failed")}</span>`
+    : sending ? `<span class="draft-status">Sending…</span>` : "";
+  const actions = sent ? "" :
+    `<div class="draft-actions">
+      <button class="ghost btn-inv-del" data-did="${d.id}" ${sending ? "disabled" : ""}>Skip</button>
+      <button class="btn-inv-send" data-did="${d.id}" ${sending ? "disabled" : ""}>${d.status === "failed" ? "Retry" : "Send"}</button>
+    </div>`;
+  return `<div class="draft ${sent ? "sent" : ""}">
+    <div class="draft-head"><strong>${who}</strong>${st}</div>
+    <textarea class="inv-text" data-did="${d.id}" rows="5" ${sent || sending ? "disabled" : ""}>${esc(d.text)}</textarea>
+    ${actions}
+  </div>`;
+}
+
+function refreshInviteDrafts(key) {
+  const f = inviteFlows.get(key);
+  const box = document.getElementById(`inv-drafts-${key}`); if (!box || !f) return;
+  box.innerHTML = f.drafts.map(inviteDraftCard).join("");
+  const cnt = document.getElementById(`inv-count-${key}`); if (cnt) cnt.textContent = f.drafts.length;
+  box.querySelectorAll(".inv-text").forEach(ta => ta.oninput = (e) => {
+    const d = f.drafts.find(x => x.id === e.target.dataset.did); if (d) d.text = e.target.value;
+  });
+  box.querySelectorAll(".btn-inv-del").forEach(b => b.onclick = () => {
+    f.drafts = f.drafts.filter(d => d.id !== b.dataset.did);
+    if (!f.drafts.length) { document.getElementById(`invite-area-${key}`).innerHTML = '<div class="note">All invite DMs handled.</div>'; return; }
+    refreshInviteDrafts(key);
+  });
+  box.querySelectorAll(".btn-inv-send").forEach(b => b.onclick = () => inviteSendOne(key, b.dataset.did));
+  const sa = document.querySelector(`.btn-inv-send-all[data-key="${key}"]`);
+  if (sa) {
+    const anySent = f.drafts.some(d => d.status === "sent");
+    const anyPending = f.drafts.some(d => d.status === "draft" || d.status === "failed");
+    sa.classList.toggle("hide", anySent || !anyPending);
+  }
+}
+
+async function inviteSendOne(key, did) {
+  const f = inviteFlows.get(key);
+  const d = f && f.drafts.find(x => x.id === did);
+  if (!d || d.status === "sent" || d.status === "sending") return null;
+  d.status = "sending"; refreshInviteDrafts(key);
+  let res = null;
+  try {
+    res = await api("/api/contact/send", { admin_id: d.user.id, text: d.text, target_handle: null });
+    d.status = res.ok ? "sent" : "failed"; d.detail = res.detail || null;
+  } catch (e) { d.status = "failed"; d.detail = e.message; }
+  refreshInviteDrafts(key); loadAudit();
+  return res;
+}
+
+async function inviteSendAll(key) {
+  const f = inviteFlows.get(key); if (!f) return;
+  const pending = f.drafts.filter(d => d.status === "draft" || d.status === "failed");
+  for (let i = 0; i < pending.length; i++) {
+    const res = await inviteSendOne(key, pending[i].id);
+    if (res && res.abort) {
+      const w = document.getElementById(`inv-warning-${key}`);
+      if (w) { w.textContent = "⚠ " + (res.detail || "Spam-limited — stopped sending."); w.classList.remove("hide"); }
+      break;
+    }
+    if (i < pending.length - 1) {
+      const wait = (res && res.retry_after) ? Math.max(res.retry_after * 1000, SEND_DELAY_MS) : SEND_DELAY_MS;
+      await sleep(wait);
+    }
+  }
+}
+
+function resetBuilder() {
+  $("paste-users").value = "";
+  $("group-title").value = "";
+  selectedContacts.clear(); updateContactsCount(); renderContactChips(); renderContacts($("contact-search").value);
+  selectedGroups.clear(); updateGroupsCount(); renderGroupChips(); renderGroups($("group-search").value);
+  buildPlan = null; inviteFlows.clear();
+}
 
 // ToS acknowledgement gate (persisted per browser).
 $("ack-chk").addEventListener("change", (e) => { $("btn-ack").disabled = !e.target.checked; });

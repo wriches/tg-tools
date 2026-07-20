@@ -44,3 +44,14 @@ class ContactSendRequest(BaseModel):
     admin_id: int
     text: str
     target_handle: str | None = None
+
+
+class ResolveRequest(BaseModel):
+    text: str
+
+
+class BuildRequest(BaseModel):
+    mode: Literal["create", "existing"]
+    title: str | None = None
+    group_ids: list[int] = []
+    user_ids: list[int] = []

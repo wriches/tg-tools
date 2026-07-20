@@ -8,7 +8,24 @@ from telethon import TelegramClient
 from tg_tools_core.client import LoginSession, build_client, user_brief
 from tg_tools_core.exceptions import NotAuthorizedError
 from tg_tools_core.contact import send_message as core_send_message
-from tg_tools_core.models import RemovalOutcome, ScanResult, SendOutcome, TargetProfile, UserBrief
+from tg_tools_core.build import (
+    add_users,
+    create_supergroup,
+    export_invite,
+    get_contacts as core_get_contacts,
+    list_addable_groups,
+    parse_identifiers,
+    resolve_users,
+)
+from tg_tools_core.models import (
+    AddableGroup,
+    RemovalOutcome,
+    ResolveResult,
+    ScanResult,
+    SendOutcome,
+    TargetProfile,
+    UserBrief,
+)
 from tg_tools_core.remove import remove_from_group
 from tg_tools_core.scan import fetch_profile, scan_common_groups
 
@@ -136,6 +153,122 @@ class SelfHostedService:
             ok=outcome.ok, detail=outcome.detail,
         )
         return outcome
+
+    # ---- builder ----
+    async def get_contacts(self) -> list[UserBrief]:
+        client = await self.get_client()
+        return await core_get_contacts(client)
+
+    async def list_groups(self, on_progress=None) -> list[AddableGroup]:
+        client = await self.get_client()
+        groups = await list_addable_groups(client, on_progress=on_progress)
+        # Persist so the groups' access-hashes survive a restart — a later add
+        # resolves each group by id (possibly from a cached list) and needs them.
+        session_store.save(client.session.save())
+        return groups
+
+    async def resolve_text(self, text: str, on_progress=None) -> ResolveResult:
+        client = await self.get_client()
+        me = await client.get_me()
+        result = await resolve_users(
+            client, parse_identifiers(text),
+            exclude_ids={getattr(me, "id", 0)}, on_progress=on_progress,
+        )
+        # Persist the session so resolved access-hashes survive to the add step.
+        session_store.save(client.session.save())
+        return result
+
+    async def build_and_add(
+        self, *, mode: str, title: str | None, group_ids: list[int],
+        user_ids: list[int], on_event=None,
+    ) -> dict:
+        """Add the resolved users to one destination (create mode) or several
+        existing groups. Each group is processed in turn; a spam limit stops the
+        whole run, a group-level failure only skips that group."""
+        client = await self.get_client()
+
+        # Resolve destinations up front: (info, entity_or_None, error_or_None).
+        dests: list[tuple[dict, object, str | None]] = []
+        if mode == "create":
+            if not (title or "").strip():
+                raise ValueError("Enter a name for the new group.")
+            group = await create_supergroup(client, title.strip())
+            dests.append((
+                {"id": group.id, "title": getattr(group, "title", ""),
+                 "username": getattr(group, "username", None), "created": True},
+                group, None,
+            ))
+        else:
+            if not group_ids:
+                raise ValueError("Select at least one group to add people to.")
+            for gid in group_ids:
+                try:
+                    group = await client.get_entity(gid)
+                    dests.append((
+                        {"id": gid, "title": getattr(group, "title", str(gid)),
+                         "username": getattr(group, "username", None), "created": False},
+                        group, None,
+                    ))
+                except Exception as exc:  # noqa: BLE001 - one group can't resolve
+                    dests.append((
+                        {"id": gid, "title": str(gid), "username": None, "created": False},
+                        None, f"Couldn't resolve group (re-load the group list): {exc}",
+                    ))
+
+        if on_event:
+            await on_event({
+                "type": "plan",
+                "groups": [d[0] for d in dests],
+                "total_groups": len(dests), "total_users": len(user_ids),
+            })
+
+        results: list[dict] = []
+        stopped_all: str | None = None
+        for gi, (info, group, err) in enumerate(dests):
+            if on_event:
+                await on_event({"type": "group_start", "group_index": gi, "group": info})
+            if err is not None:
+                gres = {"group": info, "outcomes": [], "invite_link": None, "aborted": err}
+                results.append(gres)
+                if on_event:
+                    await on_event({"type": "group_done", "group_index": gi, **gres})
+                continue
+
+            async def prog(done, total, outcome=None, wait=None, gi=gi):
+                if on_event:
+                    await on_event({
+                        "type": "progress", "group_index": gi,
+                        "done": done, "total": total, "wait": wait,
+                        "outcome": outcome.model_dump() if outcome else None,
+                    })
+
+            outcomes, aborted, stop_all = await add_users(
+                client, group, user_ids, on_progress=prog
+            )
+            invite_link = None
+            if any(o.status == "needs_invite" for o in outcomes):
+                invite_link = await export_invite(client, group)
+            for o in outcomes:
+                db.audit_add(
+                    target_id=o.user_id, target_handle=o.username,
+                    group_id=info["id"], group_title=info["title"],
+                    action=f"add:{o.status}",
+                    ok=o.status in ("added", "already_member"), detail=o.detail,
+                )
+            gres = {
+                "group": info, "outcomes": [o.model_dump() for o in outcomes],
+                "invite_link": invite_link, "aborted": aborted,
+            }
+            results.append(gres)
+            if on_event:
+                await on_event({"type": "group_done", "group_index": gi, **gres})
+            if stop_all:
+                stopped_all = aborted
+                break
+
+        # Persist so new/added entity access-hashes survive a restart.
+        session_store.save(client.session.save())
+        return {"results": results, "stopped_all": stopped_all}
 
     async def logout(self) -> None:
         if self._client is not None and self._client.is_connected():

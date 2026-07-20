@@ -24,9 +24,11 @@ from . import db
 from .config import ConfigError, get_settings
 from .schemas import (
     AuthStepResponse,
+    BuildRequest,
     ContactSendRequest,
     PasswordRequest,
     RemoveRequest,
+    ResolveRequest,
     ScanRequest,
     SendCodeRequest,
     SignInRequest,
@@ -171,6 +173,152 @@ async def contact_send(req: ContactSendRequest) -> SendOutcome:
         raise HTTPException(status_code=401, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Send failed: {exc}")
+
+
+# ---- Builder tool ----
+
+@app.get("/api/contacts")
+async def contacts() -> dict:
+    try:
+        items = await service.get_contacts()
+    except NotAuthorizedError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Couldn't load contacts: {exc}")
+    return {"contacts": items}
+
+
+@app.get("/api/builder/groups")
+async def builder_groups() -> dict:
+    try:
+        items = await service.list_groups()
+    except NotAuthorizedError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Couldn't load groups: {exc}")
+    return {"groups": items}
+
+
+@app.websocket("/ws/groups")
+async def ws_groups(ws: WebSocket) -> None:
+    """Load the addable-group list with live progress (paging all dialogs is slow
+    on busy accounts). Client sends any opening frame; server streams
+    {type:"progress", scanned, found} then a {type:"result", groups} or
+    {type:"error"} frame."""
+    await ws.accept()
+    try:
+        await ws.receive_json()
+    except Exception:
+        await ws.close()
+        return
+
+    async def on_progress(scanned: int, found: int) -> None:
+        await ws.send_json({"type": "progress", "scanned": scanned, "found": found})
+
+    try:
+        groups = await service.list_groups(on_progress)
+        await ws.send_json({"type": "result", "groups": [g.model_dump() for g in groups]})
+    except NotAuthorizedError as exc:
+        await ws.send_json({"type": "error", "detail": str(exc)})
+    except WebSocketDisconnect:
+        return
+    except Exception as exc:  # noqa: BLE001
+        try:
+            await ws.send_json({"type": "error", "detail": f"Loading groups failed: {exc}"})
+        except Exception:
+            pass
+    finally:
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+
+@app.websocket("/ws/resolve")
+async def ws_resolve(ws: WebSocket) -> None:
+    """Resolve a pasted blob of handles with live progress. Client sends {text};
+    server streams {type:"progress", done, total, wait} then a {type:"result"}
+    (ResolveResult) or {type:"error"} frame."""
+    await ws.accept()
+    try:
+        req = await ws.receive_json()
+    except Exception:
+        await ws.close()
+        return
+    text = (req or {}).get("text", "")
+
+    async def on_progress(done: int, total: int, wait: int | None = None) -> None:
+        await ws.send_json({"type": "progress", "done": done, "total": total, "wait": wait})
+
+    try:
+        result = await service.resolve_text(text, on_progress)
+        await ws.send_json({"type": "result", "data": result.model_dump()})
+    except (NotAuthorizedError, ValueError) as exc:
+        await ws.send_json({"type": "error", "detail": str(exc)})
+    except WebSocketDisconnect:
+        return
+    except Exception as exc:  # noqa: BLE001
+        try:
+            await ws.send_json({"type": "error", "detail": f"Resolve failed: {exc}"})
+        except Exception:
+            pass
+    finally:
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+
+@app.websocket("/ws/build")
+async def ws_build(ws: WebSocket) -> None:
+    """Create/populate a group with live progress. Client sends
+    {mode, title?, group_id?, user_ids}; server streams {type:"group"} once the
+    destination is known, then {type:"progress", done, total, wait, outcome} per
+    user, then a {type:"result"} (group, outcomes, invite_link, aborted) frame."""
+    await ws.accept()
+    try:
+        req = await ws.receive_json()
+    except Exception:
+        await ws.close()
+        return
+    r = req or {}
+    user_ids = r.get("user_ids") or []
+    mode = r.get("mode", "create")
+    group_ids = r.get("group_ids") or []
+    if not user_ids:
+        await ws.send_json({"type": "error", "detail": "No people selected to add."})
+        await ws.close()
+        return
+    if mode == "existing" and not group_ids:
+        await ws.send_json({"type": "error", "detail": "No groups selected."})
+        await ws.close()
+        return
+
+    async def on_event(ev: dict) -> None:
+        await ws.send_json(ev)
+
+    try:
+        result = await service.build_and_add(
+            mode=mode, title=r.get("title"),
+            group_ids=[int(g) for g in group_ids],
+            user_ids=[int(u) for u in user_ids],
+            on_event=on_event,
+        )
+        await ws.send_json({"type": "result", "data": result})
+    except (NotAuthorizedError, ValueError) as exc:
+        await ws.send_json({"type": "error", "detail": str(exc)})
+    except WebSocketDisconnect:
+        return
+    except Exception as exc:  # noqa: BLE001
+        try:
+            await ws.send_json({"type": "error", "detail": f"Build failed: {exc}"})
+        except Exception:
+            pass
+    finally:
+        try:
+            await ws.close()
+        except Exception:
+            pass
 
 
 @app.get("/api/audit")

@@ -62,6 +62,43 @@ class SendOutcome(BaseModel):
     abort: bool = False             # hard spam limit (PeerFlood): stop sending entirely
 
 
+# ---- Builder tool ----
+
+class AddableGroup(BaseModel):
+    """An existing group you can add members to (create mode aside)."""
+    id: int
+    title: str
+    username: str | None = None
+    type: Literal["group", "supergroup"]
+    members_count: int | None = None
+
+
+class UnresolvedInput(BaseModel):
+    input: str
+    reason: str
+
+
+class ResolveResult(BaseModel):
+    resolved: list[UserBrief]
+    unresolved: list[UnresolvedInput]
+
+
+# Outcome of attempting to add one user to a group.
+# status: added | needs_invite | already_member | failed
+class AddOutcome(BaseModel):
+    user_id: int
+    name: str = ""
+    username: str | None = None
+    status: str
+    detail: str | None = None
+    # True for a failure that should stop adding to the current group
+    # (missing rights, group full, spam limit).
+    abort: bool = False
+    # True when the failure is account-level (spam limit) and should stop the
+    # entire run across all groups, not just the current one.
+    stop_all: bool = False
+
+
 class AuditEntry(BaseModel):
     ts: str
     target_handle: str | None = None

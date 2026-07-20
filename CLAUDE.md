@@ -7,9 +7,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `tg-tools` is a self-hosted suite of Telegram utilities you run against **your own
 account** via the MTProto **user API** (Telethon) — *not* the Bot API, which
 cannot enumerate shared groups, read group membership, or DM arbitrary users.
-There is currently one tool, **Remover**: find groups you share with a target
-user, remove them where you have rights, and draft/send aggregated removal
-requests to the admins of groups where you don't.
+There are two tools:
+- **Remover**: find groups you share with a target user, remove them where you
+  have rights, and draft/send aggregated removal requests to the admins of
+  groups where you don't.
+- **Builder**: create a supergroup (or reuse an existing group) and bulk-add
+  people, resolved from pasted handles and/or selected contacts; anyone blocked
+  by privacy settings is offered the group's invite link to DM.
 
 Every scan/remove/send is a **real** Telegram action against real people. The UI
 gates destructive actions behind dry-run confirmation and a one-time ToS
@@ -45,8 +49,8 @@ raw-Telethon login to isolate auth issues.
 - `core/tg_tools_core/` — a **tenancy-agnostic** package that owns *all* Telegram
   logic and **persists nothing**. Installed editable; apps `import tg_tools_core`.
   Key modules: `client.py` (client factory + `LoginSession` login primitive),
-  `scan.py`, `remove.py`, `contact.py`, `models.py` (Pydantic domain models),
-  `crypto.py`, `exceptions.py`.
+  `scan.py`, `remove.py`, `contact.py` (Remover), `build.py` (Builder),
+  `models.py` (Pydantic domain models), `crypto.py`, `exceptions.py`.
 - `apps/selfhosted/` — the single-user FastAPI app + a **single static
   `frontend/index.html`** (vanilla JS, no framework/build). It owns everything
   the core doesn't: config, SQLite storage, session persistence, web layer.
@@ -106,6 +110,36 @@ selected `needs_admin` groups **per person** (owner preferred, else all admins,
 deduped) so each contact gets one message; the frontend expands an editable
 template into per-person drafts, then sends with throttling and flood backoff —
 **abort** entirely on `PeerFloodError` (spam limit), **wait** on `FloodWaitError`.
+
+### Builder pipeline (`build.py`)
+Two steps, each a WebSocket so Telegram's heavy rate-limiting on these calls
+surfaces as visible progress (same `flood_sleep_threshold` trick as the scan):
+`/ws/resolve` turns a pasted blob (`parse_identifiers` accepts `@name`, `name`,
+`t.me/...`) into resolved users (deduped by id) + an unresolved list with
+reasons; `/ws/build` creates a megagroup (`create_supergroup`) or resolves the
+chosen existing group(s), then adds people **one at a time** (`add_users`) so
+each gets a clean per-user `AddOutcome` (added / needs_invite / already_member /
+failed) rather than one privacy-restricted user failing a whole batch. The
+existing-group destination is **multi-select**: one build run queues the
+recipients through each chosen group in turn (`build_and_add` loops groups,
+streaming `plan`/`group_start`/`progress`/`group_done` events and returning a
+`results` list). A group-level failure (`abort`) only skips that group; an
+account-level spam limit (`PeerFloodError` → `stop_all`) halts the whole run.
+Adds are throttled (`_ADD_DELAY`). The group picker loads via `/ws/groups`
+(`list_addable_groups` streams `scanned/found` progress since paging all dialogs
+is slow) and the frontend caches the result in `localStorage` (`tg_groups_cache`,
+7-day TTL, with a Refresh button); a just-created group is appended to the cache
+so it appears without a reload. **Gotcha:** on current Telegram layers
+`inviteToChannel`/`addChatUser` return `messages.InvitedUsers` and report
+privacy/eligibility blocks in `missing_invitees` *instead of raising*
+`UserPrivacyRestrictedError` — so `add_user` must inspect the result
+(`_missing_invitee_ids`), not just catch exceptions, or blocked users get
+silently mislabelled "added" and never offered the link. Anyone bucketed
+`needs_invite` is
+handled via `export_invite` — the frontend shows the link and reuses the
+Remover outreach send-path (`/api/contact/send`, throttled, flood/spam backoff)
+to DM it. `list_addable_groups`/`get_contacts` back the two pickers; the session
+is persisted after resolve and after build so access-hashes survive a restart.
 
 ### Frontend model (`index.html`)
 One static file, plain DOM + `fetch`/WebSocket, no framework. State lives in a few
