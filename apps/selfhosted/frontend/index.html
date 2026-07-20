@@ -304,8 +304,11 @@
     </div>
 
     <div class="status hide" id="resolve-status"><span class="bar" id="resolve-bar"></span><span id="resolve-msg"></span></div>
-    <div class="row" style="margin-top:12px;">
+    <div class="row" style="margin-top:12px; align-items:center;">
       <button id="btn-build-preview" type="button">Preview recipients</button>
+      <button class="ghost" id="btn-clear-ledger" type="button"
+        style="font-size:12px; margin-left:auto;"
+        title="Forget which people have already been added or sent invites, so re-runs attempt everyone again.">Reset add/DM history</button>
     </div>
   </section>
 
@@ -1024,6 +1027,26 @@ function initBuilder() {
   // Groups load only when "existing" mode is chosen (ensureGroups).
 }
 
+// ---- persistent add/DM ledger (localStorage), keyed per (group, user) ----
+// Makes re-running the same operation safe: people already added to a group are
+// skipped, and people already sent an invite link aren't DM'd again (but people
+// only invited are still re-attempted, in case an add rate-limit has cleared).
+const LEDGER_KEY = "tg_build_ledger";
+function readLedger() { try { return JSON.parse(localStorage.getItem(LEDGER_KEY)) || {}; } catch { return {}; } }
+function writeLedger(l) { try { localStorage.setItem(LEDGER_KEY, JSON.stringify(l)); } catch {} }
+function ledgerStatus(gid, uid) { const e = readLedger()[gid + ":" + uid]; return e ? e.s : null; }
+function ledgerSet(gid, uid, s) {
+  const l = readLedger(), k = gid + ":" + uid, cur = l[k] && l[k].s;
+  if (cur === "added") return;                       // "added" is terminal
+  if (cur === "invited" && s !== "added") return;    // don't downgrade invited
+  l[k] = { s, t: Date.now() }; writeLedger(l);
+}
+function recordOutcomes(g) {
+  g.outcomes.forEach(o => {
+    if (o.status === "added" || o.status === "already_member") ledgerSet(g.group.id, o.user_id, "added");
+  });
+}
+
 // Destination radio toggle.
 document.querySelectorAll('input[name="dest"]').forEach(r => r.onchange = () => {
   const mode = document.querySelector('input[name="dest"]:checked').value;
@@ -1129,6 +1152,11 @@ $("btn-groups-clear").onclick = () => {
   selectedGroups.clear(); updateGroupsCount(); renderGroupChips(); renderGroups($("group-search").value);
 };
 $("btn-groups-refresh").onclick = () => loadGroupsStreaming();
+$("btn-clear-ledger").onclick = () => {
+  try { localStorage.removeItem(LEDGER_KEY); } catch {}
+  const b = $("btn-clear-ledger"), t = b.textContent;
+  b.textContent = "History cleared"; setTimeout(() => { b.textContent = t; }, 1600);
+};
 
 async function loadContacts() {
   const box = $("contacts-box");
@@ -1282,7 +1310,16 @@ $("btn-build-preview").onclick = () => {
     resolved.forEach(u => byId.set(u.id, u));
     const recipients = [...byId.values()].sort((a, b) =>
       (a.name || a.username || "").toLowerCase().localeCompare((b.name || b.username || "").toLowerCase()));
-    buildPlan = { mode, title, groupIds, groupLabels, recipients, settings };
+    // Existing mode: per group, skip people the ledger says we already added.
+    let targets = null;
+    if (mode === "existing") {
+      targets = [...selectedGroups.values()].map(g => {
+        const pending = recipients.filter(u => ledgerStatus(g.id, u.id) !== "added");
+        return { group_id: g.id, type: g.type, title: g.title, user_ids: pending.map(u => u.id),
+                 skipped: recipients.length - pending.length };
+      });
+    }
+    buildPlan = { mode, title, groupIds, groupLabels, recipients, settings, targets };
     renderBuildPreview({ ...buildPlan, unresolved });
   });
 };
@@ -1299,26 +1336,33 @@ function renderBuildPreview(p) {
     ? `<div class="status-group"><h4 class="warn-txt">Skipped (${p.unresolved.length})</h4>` +
       p.unresolved.map(u => `<div class="note">${esc(u.input)} — ${esc(u.reason)}</div>`).join("") + `</div>`
     : "";
-  const canGo = p.recipients.length > 0;
-  const n = p.recipients.length, m = p.groupIds.length;
-  let destLine, goLabel, scale;
+  const n = p.recipients.length;
+  let destLine, goLabel, scale, canGo;
   if (p.mode === "create") {
+    canGo = n > 0;
     destLine = `Create a new supergroup <strong>“${esc(p.title)}”</strong> and add:`;
     goLabel = "Create group &amp; add";
     const settingsLine = p.settings ? `<div class="note">Settings: ${esc(settingsSummary(p.settings))}</div>` : "";
     scale = (canGo ? `<div class="note">${n} ${n === 1 ? "person" : "people"} to add.</div>` : "") + settingsLine;
   } else {
-    const gchips = p.groupLabels.map(t => `<span class="pill">${esc(t)}</span>`).join(" ");
+    const m = p.targets.length;
+    const pending = p.targets.reduce((s, t) => s + t.user_ids.length, 0);
+    const skipped = p.targets.reduce((s, t) => s + t.skipped, 0);
+    canGo = pending > 0;
+    // Show a per-group "pending/total" badge when some were skipped as already-added.
+    const gchips = p.targets.map(t =>
+      `<span class="pill">${esc(t.title)}${t.skipped ? ` <span class="muted">${t.user_ids.length}/${n}</span>` : ""}</span>`).join(" ");
     destLine = `Add to <strong>${m} group${m > 1 ? "s" : ""}</strong>: <span class="recips">${gchips}</span><div style="margin-top:6px;">People:</div>`;
     goLabel = m > 1 ? "Add to groups" : "Add to group";
+    const skipNote = skipped > 0 ? ` <span class="muted">· ${skipped} already-added skipped</span>` : "";
     scale = canGo
-      ? `<div class="note">${m > 1 ? `${n} × ${m} = up to ${n * m} adds, queued group by group.` : `${n} ${n === 1 ? "person" : "people"} to add.`}</div>`
-      : "";
+      ? `<div class="note">${pending} add${pending > 1 ? "s" : ""} queued group by group.${skipNote}</div>`
+      : `<div class="note">Everyone selected is already in ${m > 1 ? "these groups" : "this group"} (from a previous run) — nothing to do.</div>`;
   }
   $("build-area").innerHTML = `
     <div class="confirm">
       <div>${destLine}</div>
-      <div class="recips">${canGo ? chips : '<span class="muted">No addable people from your input.</span>'}</div>
+      <div class="recips">${n ? chips : '<span class="muted">No addable people from your input.</span>'}</div>
       ${scale}
       ${unres}
       <div class="row" style="gap:8px; margin-top:12px;">
@@ -1367,9 +1411,11 @@ async function doBuild() {
   buildStatus.start(p.mode === "create" ? "Creating group…" : "Adding people…");
   let seenGroups = totalGroups;
   try {
-    const res = await buildViaWs(
-      { mode: p.mode, title: p.title, group_ids: p.groupIds, user_ids: p.recipients.map(u => u.id),
-        settings: p.mode === "create" ? p.settings : undefined },
+    const payload = { mode: p.mode, title: p.title,
+      settings: p.mode === "create" ? p.settings : undefined };
+    if (p.mode === "create") payload.user_ids = p.recipients.map(u => u.id);
+    else payload.targets = p.targets.map(t => ({ group_id: t.group_id, type: t.type, user_ids: t.user_ids }));
+    const res = await buildViaWs(payload,
       (m) => {
         if (m.type === "plan") {
           seenGroups = m.total_groups;
@@ -1389,7 +1435,10 @@ async function doBuild() {
     res.results.forEach(g => { if (g.group.created) addGroupToCache(g.group); });
     const totalAdded = res.results.reduce((n, g) => n + g.outcomes.filter(o => o.status === "added").length, 0);
     buildStatus.done(`Done — ${totalAdded} added across ${res.results.length} group${res.results.length > 1 ? "s" : ""}.`);
-    if (res.stopped_all) $("build-warn").innerHTML = `<div class="warn">⚠ Stopped early (account-level): ${esc(res.stopped_all)}</div>`;
+    let warnHtml = "";
+    if (res.stopped_all) warnHtml += `<div class="warn">⚠ Stopped early (account-level): ${esc(res.stopped_all)}</div>`;
+    if (res.rate_limited) warnHtml += `<div class="warn">⚠ Telegram rate-limited adding — remaining people were routed to invite links. Re-run this later to add them once the limit clears (already-added and already-invited people are skipped automatically).</div>`;
+    $("build-warn").innerHTML = warnHtml;
     $("build-done-row").classList.remove("hide");
     $("btn-build-done").onclick = () => { buildShow(false); resetBuilder(); };
     loadAudit();
@@ -1404,6 +1453,7 @@ async function doBuild() {
 function appendGroupResult(g) {
   const key = g.group.id;
   if (document.getElementById(`gres-${key}`)) return;
+  recordOutcomes(g);   // persist added/already-member to the ledger
   const div = document.createElement("div");
   div.id = `gres-${key}`;
   div.innerHTML = groupResultHtml(g);
@@ -1479,10 +1529,13 @@ I tried to add you to {{group}} but your privacy settings didn't allow it. Here'
 
 // Invite-DM flows are keyed per group so several groups' invites can coexist.
 function startInviteDMs(key, link, groupTitle, needs) {
+  // `needs` are AddOutcome objects (id is `user_id`, not `id`); normalize so the
+  // send payload has a valid `admin_id`. Skip anyone the ledger says we already
+  // DM'd this group's invite to, so re-runs don't message people twice.
+  const fresh = needs.filter(x => ledgerStatus(key, x.user_id ?? x.id) !== "invited");
   inviteFlows.set(key, {
-    // `needs` are AddOutcome objects (id is `user_id`, not `id`); normalize so
-    // the send payload has a valid `admin_id`.
-    drafts: needs.map((x, i) => ({
+    alreadyInvited: needs.length - fresh.length,
+    drafts: fresh.map((x, i) => ({
       id: `${key}_${i}`,
       user: { id: x.user_id ?? x.id, name: x.name, username: x.username },
       status: "draft", detail: null,
@@ -1499,7 +1552,13 @@ function renderInviteDrafts(key) {
   const area = document.getElementById(`invite-area-${key}`);
   const f = inviteFlows.get(key);
   if (!area || !f) return;
-  area.innerHTML = `
+  const alreadyNote = f.alreadyInvited
+    ? `<div class="note" style="margin-bottom:6px;">${f.alreadyInvited} already sent an invite earlier — skipped.</div>` : "";
+  if (!f.drafts.length) {
+    area.innerHTML = alreadyNote + `<div class="note">Nothing to send — everyone here was already invited.</div>`;
+    return;
+  }
+  area.innerHTML = alreadyNote + `
     <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:6px;">
       <strong>Invite DMs (<span id="inv-count-${key}">${f.drafts.length}</span>)</strong>
       <button class="btn-inv-send-all" data-key="${key}" type="button">Send all</button>
@@ -1560,6 +1619,7 @@ async function inviteSendOne(key, did) {
   try {
     res = await api("/api/contact/send", { admin_id: d.user.id, text: d.text, target_handle: null });
     d.status = res.ok ? "sent" : "failed"; d.detail = res.detail || null;
+    if (res.ok) ledgerSet(key, d.user.id, "invited");   // remember, so re-runs don't re-DM
   } catch (e) { d.status = "failed"; d.detail = e.message; }
   refreshInviteDrafts(key); loadAudit();
   return res;

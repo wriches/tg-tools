@@ -50,9 +50,15 @@ class ResolveRequest(BaseModel):
     text: str
 
 
+class BuildTarget(BaseModel):
+    group_id: int
+    type: str | None = None
+    user_ids: list[int] = []
+
+
 class BuildRequest(BaseModel):
     mode: Literal["create", "existing"]
     title: str | None = None
-    group_ids: list[int] = []
-    user_ids: list[int] = []
+    user_ids: list[int] = []               # create mode: members for the new group
+    targets: list[BuildTarget] = []        # existing mode: per-group member lists
     settings: GroupSettings | None = None

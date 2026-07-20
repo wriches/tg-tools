@@ -282,15 +282,18 @@ async def ws_build(ws: WebSocket) -> None:
         await ws.close()
         return
     r = req or {}
-    user_ids = r.get("user_ids") or []
     mode = r.get("mode", "create")
-    group_ids = r.get("group_ids") or []
-    if not user_ids:
+    user_ids = r.get("user_ids") or []
+    targets = r.get("targets") or []
+    if mode == "create" and not user_ids:
         await ws.send_json({"type": "error", "detail": "No people selected to add."})
         await ws.close()
         return
-    if mode == "existing" and not group_ids:
-        await ws.send_json({"type": "error", "detail": "No groups selected."})
+    if mode == "existing" and not any((t.get("user_ids") or []) for t in targets):
+        await ws.send_json({
+            "type": "error",
+            "detail": "No one left to add — everyone selected is already in the chosen group(s).",
+        })
         await ws.close()
         return
 
@@ -300,8 +303,8 @@ async def ws_build(ws: WebSocket) -> None:
     try:
         result = await service.build_and_add(
             mode=mode, title=r.get("title"),
-            group_ids=[int(g) for g in group_ids],
             user_ids=[int(u) for u in user_ids],
+            targets=targets,
             settings=r.get("settings"),
             on_event=on_event,
         )

@@ -46,9 +46,16 @@ from telethon.tl.functions.messages import (
     EditChatDefaultBannedRightsRequest,
     ExportChatInviteRequest,
 )
-from telethon.tl.types import ChatBannedRights, Channel, Chat, User
+from telethon.tl.types import (
+    ChatBannedRights,
+    Channel,
+    Chat,
+    PeerChannel,
+    PeerChat,
+    User,
+)
 
-from .client import user_brief
+from .client import _humanize, user_brief
 from .models import (
     AddableGroup,
     AddOutcome,
@@ -340,14 +347,38 @@ async def add_user(client: TelegramClient, group, user: User) -> AddOutcome:
         return _outcome(user, "failed", str(exc))
 
 
+_RATE_LIMIT_DETAIL = (
+    "Rate-limited — couldn't add now; send them the invite link or re-run later."
+)
+
+
+async def bucket_needs_invite(client: TelegramClient, user_ids, detail: str) -> list[AddOutcome]:
+    """Mark every user as needs_invite without attempting an add — used to route
+    people to the invite fallback when the account is already rate-limited."""
+    outcomes: list[AddOutcome] = []
+    for uid in user_ids:
+        try:
+            outcomes.append(_outcome(await client.get_entity(uid), "needs_invite", detail))
+        except Exception:  # noqa: BLE001
+            outcomes.append(AddOutcome(user_id=uid, status="needs_invite", detail=detail))
+    return outcomes
+
+
 async def add_users(
     client: TelegramClient, group, user_ids: list[int], on_progress=None
-) -> tuple[list[AddOutcome], str | None, bool]:
+) -> tuple[list[AddOutcome], str | None, bool, bool]:
     """Add each user (by id, resolved from the client's cache) sequentially, with
     a gentle throttle and visible flood-wait backoff. Returns the outcomes, the
-    abort reason if the run was cut short by a group-level problem, and a
-    `stop_all` flag set when the abort is account-level (spam limit) and the
-    caller should stop adding to *any* further groups too.
+    abort reason if the run was cut short by a group-level problem, a `stop_all`
+    flag (account-level spam limit — stop adding to *any* further groups), and a
+    `rate_limited` flag.
+
+    A flood-wait longer than the cap is an account-level "you've added too many
+    people, back off" limit, not a transient throttle: waiting it out would freeze
+    the run for ~an hour and just hit it again. So instead of failing those users
+    we bucket them (and everyone still pending) as needs_invite and stop — the
+    caller offers them the invite link, and a later re-run can add them once the
+    limit clears.
 
     on_progress(done, total, outcome=None, wait=None) fires after each user and
     during a flood wait."""
@@ -355,11 +386,12 @@ async def add_users(
     outcomes: list[AddOutcome] = []
     aborted: str | None = None
     stop_all = False
+    rate_limited = False
     done = 0
     prev = getattr(client, "flood_sleep_threshold", 60)
     client.flood_sleep_threshold = _FLOOD_THRESHOLD
     try:
-        for uid in user_ids:
+        for i, uid in enumerate(user_ids):
             try:
                 user = await client.get_entity(uid)
             except Exception as exc:  # entity fell out of cache
@@ -375,7 +407,12 @@ async def add_users(
                     except FloodWaitError as exc:
                         wait = int(getattr(exc, "seconds", 5))
                         if wait > _MAX_FLOOD_WAIT:
-                            outcome = _outcome(user, "failed", f"Rate-limited ({wait}s); skipped.")
+                            outcome = _outcome(
+                                user, "needs_invite",
+                                f"Rate-limited (~{_humanize(wait)}) — couldn't add now; "
+                                "send them the invite link or re-run later.",
+                            )
+                            rate_limited = True
                             break
                         if on_progress:
                             await on_progress(done, total, None, wait)
@@ -388,11 +425,39 @@ async def add_users(
                 aborted = outcome.detail
                 stop_all = outcome.stop_all
                 break
+            if rate_limited:
+                # Don't keep hammering an account-level limit — bucket the rest.
+                for oc in await bucket_needs_invite(client, user_ids[i + 1:], _RATE_LIMIT_DETAIL):
+                    outcomes.append(oc)
+                    done += 1
+                    if on_progress:
+                        await on_progress(done, total, oc, None)
+                break
             if done < total:
                 await asyncio.sleep(_ADD_DELAY)
     finally:
         client.flood_sleep_threshold = prev
-    return outcomes, aborted, stop_all
+    return outcomes, aborted, stop_all, rate_limited
+
+
+async def resolve_group(client: TelegramClient, gid: int, gtype: str | None = None):
+    """Resolve a group by id, robust to a cold entity cache.
+
+    Resolving by id needs the access-hash, which the running client may not hold:
+    the id can come from the client's *cached* group list, and a StringSession
+    doesn't restore entities across a restart (and `getChannels` with hash 0 only
+    works for public channels). So try the cache first; if it misses, warm the
+    full dialog list — that carries every group's access-hash, including private
+    ones — then resolve from the now-warm cache. The warm is a one-time cost per
+    process: after it, other groups in the same run resolve straight from cache."""
+    peer = PeerChat(gid) if gtype == "group" else PeerChannel(gid) if gtype == "supergroup" else gid
+    try:
+        return await client.get_entity(peer)
+    except Exception:  # noqa: BLE001 - not cached; warm from dialogs below
+        pass
+    async for _ in client.iter_dialogs():
+        pass
+    return await client.get_entity(peer)
 
 
 async def export_invite(client: TelegramClient, group) -> str | None:

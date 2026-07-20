@@ -11,11 +11,13 @@ from tg_tools_core.contact import send_message as core_send_message
 from tg_tools_core.build import (
     add_users,
     apply_group_settings,
+    bucket_needs_invite,
     create_supergroup,
     export_invite,
     get_contacts as core_get_contacts,
     list_addable_groups,
     parse_identifiers,
+    resolve_group,
     resolve_users,
 )
 from tg_tools_core.models import (
@@ -181,16 +183,18 @@ class SelfHostedService:
         return result
 
     async def build_and_add(
-        self, *, mode: str, title: str | None, group_ids: list[int],
-        user_ids: list[int], settings: dict | None = None, on_event=None,
+        self, *, mode: str, title: str | None, user_ids: list[int],
+        targets: list[dict] | None = None, settings: dict | None = None, on_event=None,
     ) -> dict:
-        """Add the resolved users to one destination (create mode) or several
-        existing groups. Each group is processed in turn; a spam limit stops the
-        whole run, a group-level failure only skips that group."""
+        """Add people to one new group (create mode, `user_ids`) or to several
+        existing groups (`targets` = [{group_id, user_ids}], filtered per group by
+        the caller's ledger). Each group is processed in turn; a spam limit stops
+        the whole run, a group-level failure only skips that group, and an
+        account-level add rate-limit routes all remaining people to invite links."""
         client = await self.get_client()
 
-        # Resolve destinations up front: (info, entity_or_None, error_or_None).
-        dests: list[tuple[dict, object, str | None]] = []
+        # Resolve destinations up front: (info, entity_or_None, error_or_None, uids).
+        dests: list[tuple[dict, object, str | None, list[int]]] = []
         if mode == "create":
             if not (title or "").strip():
                 raise ValueError("Enter a name for the new group.")
@@ -201,35 +205,43 @@ class SelfHostedService:
                 {"id": group.id, "title": getattr(group, "title", ""),
                  "username": getattr(group, "username", None), "created": True,
                  "settings_warnings": warnings},
-                group, None,
+                group, None, list(user_ids),
             ))
         else:
-            if not group_ids:
+            if not targets:
                 raise ValueError("Select at least one group to add people to.")
-            for gid in group_ids:
+            # Group ids may come from the client's cached list, so the running
+            # client may not hold their access-hashes (a StringSession doesn't
+            # restore entities across a restart). `resolve_group` uses the group's
+            # type to resolve by getChannels/getChats, which works regardless.
+            for t in targets:
+                gid = int(t["group_id"])
+                gtype = t.get("type")
+                uids = [int(u) for u in (t.get("user_ids") or [])]
+                group, err = None, None
                 try:
-                    group = await client.get_entity(gid)
-                    dests.append((
-                        {"id": gid, "title": getattr(group, "title", str(gid)),
-                         "username": getattr(group, "username", None), "created": False},
-                        group, None,
-                    ))
-                except Exception as exc:  # noqa: BLE001 - one group can't resolve
-                    dests.append((
-                        {"id": gid, "title": str(gid), "username": None, "created": False},
-                        None, f"Couldn't resolve group (re-load the group list): {exc}",
-                    ))
+                    group = await resolve_group(client, gid, gtype)
+                except Exception as exc:  # noqa: BLE001 - genuinely can't resolve
+                    err = f"Couldn't resolve group (re-load the group list): {exc}"
+                info = {
+                    "id": gid,
+                    "title": getattr(group, "title", str(gid)) if group else str(gid),
+                    "username": getattr(group, "username", None) if group else None,
+                    "created": False,
+                }
+                dests.append((info, group, err, uids))
 
         if on_event:
             await on_event({
                 "type": "plan",
                 "groups": [d[0] for d in dests],
-                "total_groups": len(dests), "total_users": len(user_ids),
+                "total_groups": len(dests), "total_users": sum(len(d[3]) for d in dests),
             })
 
         results: list[dict] = []
         stopped_all: str | None = None
-        for gi, (info, group, err) in enumerate(dests):
+        rate_limited = False  # account-level add limit hit; route the rest to invites
+        for gi, (info, group, err, uids) in enumerate(dests):
             if on_event:
                 await on_event({"type": "group_start", "group_index": gi, "group": info})
             if err is not None:
@@ -239,17 +251,28 @@ class SelfHostedService:
                     await on_event({"type": "group_done", "group_index": gi, **gres})
                 continue
 
-            async def prog(done, total, outcome=None, wait=None, gi=gi):
-                if on_event:
-                    await on_event({
-                        "type": "progress", "group_index": gi,
-                        "done": done, "total": total, "wait": wait,
-                        "outcome": outcome.model_dump() if outcome else None,
-                    })
+            aborted: str | None = None
+            stop_all = False
+            if rate_limited:
+                outcomes = await bucket_needs_invite(
+                    client, uids,
+                    "Rate-limited earlier this run — send them the invite link or re-run later.",
+                )
+            else:
+                async def prog(done, total, outcome=None, wait=None, gi=gi):
+                    if on_event:
+                        await on_event({
+                            "type": "progress", "group_index": gi,
+                            "done": done, "total": total, "wait": wait,
+                            "outcome": outcome.model_dump() if outcome else None,
+                        })
 
-            outcomes, aborted, stop_all = await add_users(
-                client, group, user_ids, on_progress=prog
-            )
+                outcomes, aborted, stop_all, hit = await add_users(
+                    client, group, uids, on_progress=prog
+                )
+                if hit:
+                    rate_limited = True
+
             invite_link = None
             if any(o.status == "needs_invite" for o in outcomes):
                 invite_link = await export_invite(client, group)
@@ -273,7 +296,7 @@ class SelfHostedService:
 
         # Persist so new/added entity access-hashes survive a restart.
         session_store.save(client.session.save())
-        return {"results": results, "stopped_all": stopped_all}
+        return {"results": results, "stopped_all": stopped_all, "rate_limited": rate_limited}
 
     async def logout(self) -> None:
         if self._client is not None and self._client.is_connected():
